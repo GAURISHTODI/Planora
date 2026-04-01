@@ -1,0 +1,12 @@
+.env
+.env.local
+appsettings.Development.json
+appsettings.Production.json
+google-services.json
+GoogleService-Info.plist
+*.user
+.DS_Store
+node_modules/
+bin/
+obj/
+.expo/
