@@ -1,0 +1,6 @@
+D:\Planora\.codex-build\ai-obj\Debug\net8.0\PlanoraApp.AI.csproj.AssemblyReference.cache
+D:\Planora\.codex-build\ai-obj\Debug\net8.0\PlanoraApp.AI.GeneratedMSBuildEditorConfig.editorconfig
+D:\Planora\.codex-build\ai-obj\Debug\net8.0\PlanoraApp.AI.AssemblyInfoInputs.cache
+D:\Planora\.codex-build\ai-obj\Debug\net8.0\PlanoraApp.AI.AssemblyInfo.cs
+D:\Planora\.codex-build\ai-obj\Debug\net8.0\PlanoraApp.AI.csproj.CoreCompileInputs.cache
+D:\Planora\.codex-build\ai-obj\Debug\net8.0\PlanoraApp.AI.sourcelink.json

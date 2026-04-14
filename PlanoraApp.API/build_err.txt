@@ -1,0 +1,13 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+D:\Planora\PlanoraApp.AI\Agents\LlmAgents.cs(76,41): error CS0266: Cannot implicitly convert type 'Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIPromptExecutionSettings' to 'System.Collections.Generic.IReadOnlyDictionary<string, Microsoft.SemanticKernel.PromptExecutionSettings>'. An explicit conversion exists (are you missing a cast?) [D:\Planora\PlanoraApp.AI\PlanoraApp.AI.csproj]
+D:\Planora\PlanoraApp.AI\Agents\LlmAgents.cs(36,41): error CS0266: Cannot implicitly convert type 'Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIPromptExecutionSettings' to 'System.Collections.Generic.IReadOnlyDictionary<string, Microsoft.SemanticKernel.PromptExecutionSettings>'. An explicit conversion exists (are you missing a cast?) [D:\Planora\PlanoraApp.AI\PlanoraApp.AI.csproj]
+
+Build FAILED.
+
+D:\Planora\PlanoraApp.AI\Agents\LlmAgents.cs(76,41): error CS0266: Cannot implicitly convert type 'Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIPromptExecutionSettings' to 'System.Collections.Generic.IReadOnlyDictionary<string, Microsoft.SemanticKernel.PromptExecutionSettings>'. An explicit conversion exists (are you missing a cast?) [D:\Planora\PlanoraApp.AI\PlanoraApp.AI.csproj]
+D:\Planora\PlanoraApp.AI\Agents\LlmAgents.cs(36,41): error CS0266: Cannot implicitly convert type 'Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIPromptExecutionSettings' to 'System.Collections.Generic.IReadOnlyDictionary<string, Microsoft.SemanticKernel.PromptExecutionSettings>'. An explicit conversion exists (are you missing a cast?) [D:\Planora\PlanoraApp.AI\PlanoraApp.AI.csproj]
+    0 Warning(s)
+    2 Error(s)
+
+Time Elapsed 00:00:01.41

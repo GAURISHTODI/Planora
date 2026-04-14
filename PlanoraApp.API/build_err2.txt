@@ -1,0 +1,12 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  PlanoraApp.AI -> D:\Planora\PlanoraApp.AI\bin\Debug\net8.0\PlanoraApp.AI.dll
+D:\Planora\PlanoraApp.API\Services\BookingService\BookingController.cs(35,31): error CS1061: 'TripDocument' does not contain a definition for 'Origin' and no accessible extension method 'Origin' accepting a first argument of type 'TripDocument' could be found (are you missing a using directive or an assembly reference?) [D:\Planora\PlanoraApp.API\PlanoraApp.API.csproj]
+
+Build FAILED.
+
+D:\Planora\PlanoraApp.API\Services\BookingService\BookingController.cs(35,31): error CS1061: 'TripDocument' does not contain a definition for 'Origin' and no accessible extension method 'Origin' accepting a first argument of type 'TripDocument' could be found (are you missing a using directive or an assembly reference?) [D:\Planora\PlanoraApp.API\PlanoraApp.API.csproj]
+    0 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:01.69
