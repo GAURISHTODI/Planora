@@ -4,6 +4,7 @@
 > You build. You do not summarise unless asked.
 > **v1.0:** Full Azure consolidation. MongoDB Atlas → Cosmos DB (MongoDB API). Supabase → Azure PostgreSQL. Upstash → Azure Cache for Redis + Azure Service Bus. Twilio → Azure Communication Services. Firebase retained for push.
 > **v1.0:** Azure AD B2C discontinued for new customers (May 2025) → **Microsoft Entra External ID**. Tenant created at `entra.microsoft.com`. All SDK/env keys unchanged.
+> **v2.0:** Skyscanner + Kayak denied → **AWIN/Booking.com** is primary affiliate partner. GCP Free Plan active — all Google APIs working. Bookings Tab removed from bottom nav — bookings are contextual inside trips and the Vault. Three trip creation modes added (AI, Manual, Package Browse). Edit Mode (add/delete spots) added. Spot Enrichment Agent added. Pre-wizard screen updated to 3-card layout.
 
 ---
 
@@ -42,6 +43,7 @@ AI:           OpenAI API DIRECTLY — use AddOpenAIChatCompletion(), NOT AddAzur
 SMS:          Azure Communication Services (SMS)
 Push:         Firebase Cloud Messaging (push notifications ONLY — simplest, most reliable)
 Hosting:      Railway.app for dev, Azure Container Apps for production
+Affiliate:    AWIN (Booking.com programme) — Skyscanner and Kayak DENIED, do not use
 ```
 
 ---
@@ -56,7 +58,6 @@ EXPO_PUBLIC_B2C_CLIENT_ID=PASTE_HERE
 EXPO_PUBLIC_B2C_TENANT_NAME=PASTE_HERE
 EXPO_PUBLIC_B2C_POLICY=B2C_1_signupsignin
 ```
-Access in code as: `process.env.EXPO_PUBLIC_*`
 
 ### Backend — `PlanoraApp.API/appsettings.Development.json`
 ```json
@@ -88,7 +89,13 @@ Access in code as: `process.env.EXPO_PUBLIC_*`
     "FromPhone": "PASTE_HERE"
   },
   "Google": { "PlacesApiKey": "PASTE_HERE" },
-  "Firebase": { "ServerKey": "PASTE_HERE" }
+  "Firebase": { "ServerKey": "PASTE_HERE" },
+  "Affiliates": {
+    "BookingComAid": "PASTE_FROM_AWIN_DASHBOARD",
+    "AgodaCid": "PASTE_FROM_AGODA",
+    "ViatorMcid": "PASTE_FROM_VIATOR",
+    "GygPartnerId": "PASTE_FROM_GYG"
+  }
 }
 ```
 **This file is gitignored. Never commit it.**
@@ -166,67 +173,47 @@ npx expo install react-native-gesture-handler react-native-reanimated
 PlanoraApp/
   app/
     (tabs)/
-      _layout.tsx       ← 5 tabs: Home, Trips, Bookings, Vault, Profile
+      _layout.tsx       ← 5 tabs: Home, Trips, Vault, Safety, Profile
+                          ⚠ NO Bookings tab — removed in v2.0
       index.tsx
       trips.tsx
-      bookings.tsx
-      vault.tsx
+      vault.tsx         ← replaces bookings.tsx
+      safety.tsx
       profile.tsx
     (onboarding)/
       _layout.tsx
-      slide1.tsx        ← beachbest.jpg background
-      slide2.tsx        ← purple indigo.jpg background
-      slide3.tsx        ← stay.jpg background
-      slide4.tsx        ← temple.jpg background
-      slide5.tsx        ← galleryindore.jpg background
-      slide6.tsx        ← tibetmountains.jpg background
-      signin.tsx        ← signin.jpg background + login form
-      signup.tsx        ← signup.jpg background + signup form
-    _layout.tsx         ← root layout, checks auth → routes to onboarding or tabs
+      slide1.tsx
+      slide2.tsx
+      slide3.tsx
+      slide4.tsx
+      slide5.tsx
+      slide6.tsx
+      signin.tsx
+      signup.tsx
+    _layout.tsx
   assets/
-    images/             ← copy all images from root /images/ folder here
-  components/ui/        ← Button, Card, Badge, Skeleton, Toast, SafetyFab
+    images/
+  components/ui/
+    Button.tsx, Card.tsx, Badge.tsx, Skeleton.tsx, Toast.tsx, SafetyFab.tsx
   store/
     tripStore.ts
     wizardStore.ts
     authStore.ts
   constants/
-    theme.ts            ← Planora brand colors, fonts, spacing
+    theme.ts
   services/
-    api.ts              ← axios base instance → EXPO_PUBLIC_API_BASE_URL
+    api.ts
   .env
   .gitignore
 ```
 
-**Onboarding implementation rules:**
-- Each slide: full-screen `ImageBackground` from `assets/images/`
-- Gradient overlay: `LinearGradient` from `expo-linear-gradient`
-  - Top: `rgba(0,0,0,0.1)` → Bottom: `rgba(0,0,0,0.7)`
-- Planora logo (`logo.jpg`) shown top-center on slides 1, signin, signup
-- Text: white, bold, positioned bottom 20% of screen
-- Dot indicators between text and bottom edge
-- "Skip" button: top-right, white, slides 1–6 only
-- Swipe gesture between slides using `react-native-gesture-handler`
-- Slides 7 (signin) and 8 (signup): image background + semi-transparent form card on top
-- After successful auth → navigate to `/(tabs)/`
-
-**Slide text overlay:**
-```
-slide1  "Your next adventure starts here"      subtext: "Planora plans it all for you"
-slide2  "Plan smarter, travel better"           subtext: "AI-powered day-by-day itineraries"
-slide3  "Every stay, perfectly placed"          subtext: "Hotels matched to your budget"
-slide4  "Discover hidden gems"                  subtext: "Beyond the tourist trail"
-slide5  "Built for Indian explorers"            subtext: "Local intel, global standards"
-slide6  "From beaches to mountains"             subtext: "One app for every trip"
-```
-
-**Planora brand colors (use in theme.ts):**
+**Planora brand colors (theme.ts):**
 ```typescript
 export const theme = {
-  primary: '#6C63FF',      // indigo-purple
-  secondary: '#FF6584',    // coral accent
-  background: '#0F0E17',   // near black
-  surface: '#1A1A2E',      // dark card
+  primary: '#6C63FF',
+  secondary: '#FF6584',
+  background: '#0F0E17',
+  surface: '#1A1A2E',
   text: '#FFFFFE',
   textMuted: '#A7A9BE',
   success: '#2CB67D',
@@ -234,7 +221,14 @@ export const theme = {
 }
 ```
 
-Test: `npx expo start` → onboarding slides swipeable → all 8 screens load → logo visible.
+**Onboarding:**
+- Each slide: full-screen ImageBackground
+- LinearGradient overlay: `rgba(0,0,0,0.1)` → `rgba(0,0,0,0.7)`
+- Logo top-center on slides 1, signin, signup
+- Swipe gesture between slides
+- "Skip" top-right on slides 1–6
+
+Test: `npx expo start` → onboarding swipeable → all screens load.
 
 ---
 
@@ -248,72 +242,62 @@ Test: `npx expo start` → onboarding slides swipeable → all 8 screens load �
 ║ Resource: Microsoft Entra External ID    ║
 ║ ⚠ Azure AD B2C is DISCONTINUED for new  ║
 ║   customers (May 2025). Use Entra.       ║
-║                                          ║
 ║ Step 1: Go to entra.microsoft.com        ║
-║         (NOT portal.azure.com)          ║
-║ Step 2: Entra ID → Overview →           ║
-║         Manage tenants → Create         ║
-║ Step 3: Select "External" → Continue    ║
-║ Step 4: Tenant name: Planora             ║
+║ Step 2: Entra ID → Manage tenants →     ║
+║         Create → External               ║
+║ Step 3: Tenant: Planora                  ║
 ║         Domain: planoratravel            ║
-║         → planoratravel.onmicrosoft.com ║
-║         Country: India → Review+Create  ║
-║         (takes up to 30 min)            ║
-║ Step 5: Switch to new tenant:            ║
-║         Settings icon → Directories +  ║
-║         subscriptions → Switch          ║
-║ Step 6: App registrations → New          ║
-║         Name: PlanoraApp                ║
-║         Redirect URI (Mobile/Desktop):  ║
-║         exp://localhost → Register      ║
-║ Step 7: Copy Application (client) ID    ║
-║         → PlanoraApp/.env              ║
+║ Step 4: App registrations → New          ║
+║         Redirect URI: exp://localhost   ║
+║ Step 5: Copy Client ID →                 ║
 ║         EXPO_PUBLIC_B2C_CLIENT_ID       ║
-║ Step 8: User flows → New user flow →    ║
-║         Sign up and sign in             ║
-║         Name: signupsignin              ║
-║         → B2C_1_signupsignin           ║
-║         Identity providers: Email+Google║
-║ Step 9: Save tenant domain              ║
-║         planoratravel →                ║
-║         EXPO_PUBLIC_B2C_TENANT_NAME    ║
+║ Step 6: User flows → signupsignin        ║
 ╚══════════════════════════════════════════╝
 ⏸ PAUSED — Waiting for confirmation.
 ```
 
 Files:
-- `PlanoraApp/services/auth/authService.ts` — PKCE flow using expo-auth-session
-- `PlanoraApp/app/(onboarding)/signin.tsx` — complete sign in screen
-- `PlanoraApp/app/(onboarding)/signup.tsx` — complete sign up screen
-- `PlanoraApp/store/authStore.ts` — token storage in expo-secure-store
+- `PlanoraApp/services/auth/authService.ts`
+- `PlanoraApp/app/(onboarding)/signin.tsx`
+- `PlanoraApp/app/(onboarding)/signup.tsx`
+- `PlanoraApp/store/authStore.ts`
 
-Test: full login returns JWT, stored securely, user redirected to tabs.
+Test: full login returns JWT, stored securely, redirected to tabs.
 
 ---
 
-### STEP 3 — Trip Wizard UI
+### STEP 3 — Trip Wizard UI + Pre-Wizard Screen
 `[RECOMMENDED MODEL: Claude Sonnet 4.6]`
 
-Files:
+**Pre-wizard screen — 3-card layout:**
+```
+┌──────────────────────────────────────────────────────┐
+│                  How do you want to start?           │
+├──────────────────────┬──────────────────┬────────────┤
+│  🤖 AI Generate     │ 🗺 Build Manually │ 📦 Browse  │
+│  My Trip            │                  │ Packages   │
+└──────────────────────┴──────────────────┴────────────┘
+```
+- Card 1 → `/(wizard)/step1-destination`
+- Card 2 → `/(manual-builder)/setup`
+- Card 3 → `/(packages)/browse`
+
+**AI Wizard files:**
 - `PlanoraApp/app/wizard/_layout.tsx` — progress bar (Step X of 6)
-- `PlanoraApp/app/wizard/step1-destination.tsx` — city autocomplete search
-- `PlanoraApp/app/wizard/step2-dates.tsx` — date range picker + color-coded grid
+- `PlanoraApp/app/wizard/step1-destination.tsx`
+- `PlanoraApp/app/wizard/step2-dates.tsx` — date range + color-coded grid
 - `PlanoraApp/app/wizard/step3-origin.tsx` — optional, toggle-gated
-- `PlanoraApp/app/wizard/step4-group.tsx` — group type chips + pax counter
-- `PlanoraApp/app/wizard/step5-themes.tsx` — multi-select theme chips
-- `PlanoraApp/app/wizard/step6-details.tsx` — free text + preferences
-- `PlanoraApp/store/wizardStore.ts` — all state in Zustand, persisted to MMKV
+- `PlanoraApp/app/wizard/step4-group.tsx`
+- `PlanoraApp/app/wizard/step5-themes.tsx`
+- `PlanoraApp/app/wizard/step6-details.tsx`
+- `PlanoraApp/store/wizardStore.ts`
 
-Pre-wizard screen: two cards — "Plan my own trip" and "Browse agency packages"
-
-Date picker: green = cheapest, amber = mid, red = expensive (placeholder data until Step 7).
-
-Test: all 6 steps complete → wizardStore has all values.
+Test: all 6 steps complete → wizardStore populated → 3-card pre-wizard screen visible.
 
 ---
 
 ### STEP 4 — .NET API + Azure Cosmos DB + Azure PostgreSQL
-`[RECOMMENDED MODEL: Claude Sonnet 4.6, Opus 4.6 for architecture questions]`
+`[RECOMMENDED MODEL: Claude Sonnet 4.6]`
 
 ```bash
 dotnet new webapi -n PlanoraApp.API --use-controllers
@@ -329,38 +313,8 @@ dotnet add package Microsoft.EntityFrameworkCore.Design
 ║         [CLOUD SETUP REQUIRED]           ║
 ╠══════════════════════════════════════════╣
 ║ Resource 1: Azure Cosmos DB (MongoDB API)║
-║ Step 1: portal.azure.com → Create        ║
-║         Resource → Azure Cosmos DB       ║
-║ Step 2: API: Azure Cosmos DB for         ║
-║         MongoDB (IMPORTANT — NOT Core)  ║
-║ Step 3: Resource group: planora-rg       ║
-║         Account name: planora-cosmos     ║
-║         Region: Central India            ║
-║ Step 4: Go to resource →                 ║
-║         Connection strings →            ║
-║         Copy Primary Connection String  ║
-║ Step 5: Save → appsettings              ║
-║         CosmosDb:ConnectionString       ║
-║                                          ║
 ║ Resource 2: Azure PostgreSQL             ║
-║ Step 6: portal.azure.com → Create        ║
-║         Resource → Azure Database for   ║
-║         PostgreSQL Flexible Server      ║
-║ Step 7: Resource group: planora-rg       ║
-║         Server name: planora-postgres    ║
-║         Region: Central India            ║
-║         Compute: Burstable B1ms (free)  ║
-║         Admin user + password → save    ║
-║ Step 8: Networking → Allow Azure         ║
-║         services + your IP              ║
-║ Step 9: Go to resource → Connection      ║
-║         strings → copy ADO.NET string  ║
-║         Replace {password} with yours  ║
-║ Step 10: Save → appsettings             ║
-║          PostgreSQL:ConnectionString    ║
-║ Step 11: Connect via psql or pgAdmin    ║
-║          Run CREATE TABLE SQL from      ║
-║          PROJECT_BIBLE Section 4       ║
+║ → Follow FULL_PROCESS.md Steps 4–5      ║
 ╚══════════════════════════════════════════╝
 ⏸ PAUSED — Waiting for confirmation.
 ```
@@ -373,38 +327,31 @@ PlanoraApp.API/
       TripController.cs
       TripService.cs
       TripRepository.cs
-      Models/TripDocument.cs
+      Models/TripDocument.cs        ← includes trip_type field
       Models/ItineraryDayDocument.cs
       Models/PlaceOfInterestDocument.cs
     UserService/
       UserController.cs
       UserService.cs
   Infrastructure/
-    CosmosDbClient.cs           ← MongoDB.Driver connecting to Cosmos DB MongoDB API
-    AppDbContext.cs             ← Npgsql EF Core connecting to Azure PostgreSQL
+    CosmosDbClient.cs
+    AppDbContext.cs
   Middleware/
     GlobalExceptionMiddleware.cs
   Program.cs
   appsettings.json
-  appsettings.Development.json   ← gitignored
+  appsettings.Development.json  ← gitignored
 ```
 
-**Cosmos DB connection (MongoDB.Driver — identical to Atlas):**
-```csharp
-// CosmosDbClient.cs
-var client = new MongoClient(config["CosmosDb:ConnectionString"]);
-var db = client.GetDatabase(config["CosmosDb:DatabaseName"]);
-// Exact same API as MongoDB Atlas — no other code changes needed
-```
-
-Implement all Trip Service endpoints from PROJECT_BIBLE Section 5.
-Use `MongoDB.Driver` — Cosmos DB MongoDB API is wire-compatible.
+Implement all Trip Service endpoints from PROJECT_BIBLE Section 5, including:
+- `POST /{trip_id}/days/{d}/pois` — used by Manual Builder AND Edit Mode
+- `DELETE /{trip_id}/days/{d}/pois/{p}` — Edit Mode delete
 
 Test: `dotnet run` → GET /api/v1/trips returns 200.
 
 ---
 
-### STEP 5 — Semantic Kernel + Orchestrator
+### STEP 5 — Semantic Kernel + Orchestrator + Spot Enrichment Agent
 `[RECOMMENDED MODEL: Claude Opus 4.6]`
 
 ```bash
@@ -420,95 +367,64 @@ dotnet add package Azure.Messaging.ServiceBus
 ╔══════════════════════════════════════════╗
 ║         [CLOUD SETUP REQUIRED]           ║
 ╠══════════════════════════════════════════╣
-║ Resource 1: OpenAI API Key               ║
-║ → already have sk-... key               ║
-║ → add to appsettings OpenAI:ApiKey      ║
-║                                          ║
-║ Resource 2: Azure Cache for Redis        ║
-║ Step 1: portal.azure.com → Create        ║
-║         Resource → Azure Cache for Redis ║
-║ Step 2: Resource group: planora-rg       ║
-║         DNS name: planora-cache          ║
-║         Region: Central India            ║
-║         SKU: Basic C0 (free/cheapest)   ║
-║ Step 3: Go to resource → Access keys →  ║
-║         Copy Primary connection string  ║
-║ Step 4: Save → appsettings              ║
-║         AzureRedis:ConnectionString     ║
-║                                          ║
-║ Resource 3: Azure Service Bus            ║
-║ Step 5: portal.azure.com → Create        ║
-║         Resource → Service Bus          ║
-║ Step 6: Resource group: planora-rg       ║
-║         Namespace: planora-bus           ║
-║         Region: Central India            ║
-║         Pricing: Basic                  ║
-║ Step 7: Go to namespace → Queues →      ║
-║         + Queue → name: ai-generation-  ║
-║         jobs                            ║
-║ Step 8: Shared access policies →        ║
-║         RootManageSharedAccessKey →    ║
-║         Copy Primary Connection String ║
-║ Step 9: Save → appsettings             ║
-║         AzureServiceBus:ConnectionString║
+║ OpenAI API Key + Azure Redis + Service  ║
+║ Bus → Follow FULL_PROCESS.md Steps 6–7  ║
 ╚══════════════════════════════════════════╝
 ⏸ PAUSED — Waiting for confirmation.
 ```
 
-Semantic Kernel config — OpenAI DIRECTLY:
+**Semantic Kernel — OpenAI DIRECTLY:**
 ```csharp
-var builder = Kernel.CreateBuilder();
 builder.AddOpenAIChatCompletion(
-    modelId: config["OpenAI:Model"],   // "gpt-4o"
+    modelId: config["OpenAI:Model"],
     apiKey: config["OpenAI:ApiKey"]
 );
 // NOT AddAzureOpenAIChatCompletion
-```
-
-**Azure Service Bus (replaces Upstash QStash):**
-```csharp
-// Publishing a job
-var client = new ServiceBusClient(config["AzureServiceBus:ConnectionString"]);
-var sender = client.CreateSender("ai-generation-jobs");
-await sender.SendMessageAsync(new ServiceBusMessage(JsonSerializer.Serialize(job)));
-
-// Azure Functions trigger (in AgentWorkerFunction.cs)
-[Function("AgentWorker")]
-public async Task Run([ServiceBusTrigger("ai-generation-jobs",
-    Connection = "AzureServiceBus:ConnectionString")] string messageBody) { ... }
-```
-
-**Azure Cache for Redis (replaces Upstash Redis):**
-```csharp
-var redis = await ConnectionMultiplexer.ConnectAsync(config["AzureRedis:ConnectionString"]);
-var db = redis.GetDatabase();
-// Same StackExchange.Redis API — no other code changes
 ```
 
 Files:
 ```
 PlanoraApp.AI/
   Agents/
-    OrchestratorAgent.cs      ← full implementation
-    ResearchAgent.cs          ← stub
-    RouteOptimiserAgent.cs    ← stub
-    TourPackageInjector.cs    ← stub
-    BudgetAgent.cs            ← stub
-    DayAssemblyAgent.cs       ← stub
-    PersonalisationAgent.cs   ← stub
+    OrchestratorAgent.cs
+    ResearchAgent.cs
+    RouteOptimiserAgent.cs
+    TourPackageInjector.cs
+    BudgetAgent.cs
+    DayAssemblyAgent.cs
+    PersonalisationAgent.cs
+    SpotEnrichmentAgent.cs       ← NEW: single-spot enrichment for Manual + Edit mode
   Functions/
-    AgentWorkerFunction.cs    ← Azure Service Bus trigger
+    AgentWorkerFunction.cs       ← Azure Service Bus trigger
   Models/
     TripGenerationRequest.cs
     AgentJobStatus.cs
     ItineraryOutput.cs
+    SpotEnrichmentRequest.cs     ← NEW
+    SpotEnrichmentResult.cs      ← NEW
   SemanticKernelSetup.cs
 ```
 
-Orchestrator: read job → call agents in sequence → update Cosmos DB job status → push SSE → write final itinerary.
-Error rule: catch per agent, retry once, then FAILED with error_log. Never crash worker.
+**SpotEnrichmentAgent — prompt target ~800 tokens:**
+```csharp
+// Input: Google Place ID + trip context (destination, budget_tier, dates)
+// Output: photo_url, ai_summary, estimated_cost, visit_duration_minutes,
+//         booking_type (A/B/C), booking_url, opening_hours, entry_fee_approx,
+//         geocoordinates (from Places API directly — no GPT needed for coords)
 
-Test: POST /api/v1/ai/generate → job appears in Azure Service Bus queue.
+// Step 1: Google Places Details API call → get name, address, photos, website, coords
+// Step 2: GPT-4o call (~800 tokens) → ai_summary + booking enrichment
+// Return combined result
+```
+
+**Exposed via REST:**
+```
+POST /api/v1/ai/enrich-spot
+Body: { place_id: string, trip_id: string, day_number: int }
+Returns: enriched POI document
+```
+
+Test: POST /api/v1/ai/generate → job in Service Bus queue. POST /api/v1/ai/enrich-spot → returns enriched POI.
 
 ---
 
@@ -520,16 +436,14 @@ Test: POST /api/v1/ai/generate → job appears in Azure Service Bus queue.
 ║         [CLOUD SETUP REQUIRED]           ║
 ╠══════════════════════════════════════════╣
 ║ Resource: Google Cloud APIs              ║
+║ GCP Free Plan is active — APIs working  ║
 ║ Step 1: console.cloud.google.com         ║
 ║ Step 2: Enable:                          ║
 ║   Places API (New)                      ║
 ║   Distance Matrix API                   ║
 ║   Maps SDK Android + iOS                ║
 ║ Step 3: Create API Key                   ║
-║ Step 4: Copy →                           ║
-║   appsettings Google:PlacesApiKey       ║
-║   PlanoraApp/.env EXPO_PUBLIC_GOOGLE_   ║
-║   MAPS_KEY                              ║
+║ Step 4: Copy to appsettings +.env        ║
 ╚══════════════════════════════════════════╝
 ⏸ PAUSED — Waiting for confirmation.
 ```
@@ -538,81 +452,181 @@ Build one agent at a time, test before next:
 
 1. **ResearchAgent** — Google Places API, scored POI list by theme
 2. **RouteOptimiserAgent** — Distance Matrix, cluster into day groups
-3. **TourPackageInjector** — merge locked package blocks from Azure PostgreSQL
+3. **TourPackageInjector** — merge locked package blocks from PostgreSQL
 4. **BudgetAgent** — cost estimates from pricing JSON per tier
 5. **DayAssemblyAgent** — time slots 9am–10pm, meal + travel gaps
 6. **PersonalisationAgent** — GPT-4o rerank + ai_summary per POI
+
+Also extend **ResearchAgent** with `EnrichPoiWithBookingData()` per BOOKING_ARCHITECTURE.md Section 3.
 
 Write one xUnit test per agent with mocked inputs.
 
 ---
 
-### STEP 7 — Booking Gateway
+### STEP 7 — Booking Gateway (Contextual — No Bookings Tab)
 `[RECOMMENDED MODEL: Claude Sonnet 4.6]`
+
+> ⚠ IMPORTANT CHANGE from v1.0: There is NO standalone Bookings tab in the app nav.
+> Booking options are rendered contextually inside the Trip Card (per POI, and in a "Book" tab within the trip detail screen).
+> Skyscanner and Kayak are NOT used — they denied the partnership.
+> Primary affiliate is Booking.com via AWIN (`aid` param).
 
 Azure Cache for Redis already set up in Step 5 — use same credentials.
 
-Files:
-- `PlanoraApp.API/Services/BookingService/BookingController.cs`
-- `PlanoraApp.API/Services/BookingService/AffiliateLinkBuilder.cs`
-  - `BuildLink(platform, origin, destination, checkIn, checkOut, paxCount) → string`
-  - Platforms: Skyscanner, Booking.com, MakeMyTrip, Ixigo, Yatra, Viator, Uber, Ola
-  - If exact format unknown: clearly label placeholder, tell user to get from affiliate portal
-- `PlanoraApp.API/Services/BookingService/PriceCacheService.cs` — Azure Cache for Redis, 15min TTL
-- `PlanoraApp/app/bookings/hub.tsx` — category grid
-- `PlanoraApp/app/bookings/compare.tsx` — platform comparison UI
+**Files:**
+```
+PlanoraApp.API/Services/BookingService/
+  BookingController.cs
+  AffiliateLinkBuilder.cs     ← see BOOKING_ARCHITECTURE.md for all deeplink formats
+  PriceCacheService.cs        ← Azure Cache for Redis, 15min TTL
+  Models/BookingOption.cs
+  Models/PoiBookingOptions.cs
+  Models/OfflineInfo.cs
+  Models/BookingRequest.cs
 
-Test: GET /api/v1/booking/options/{trip_id}/flight → returns platform deeplinks array.
+PlanoraApp/app/trip/
+  [trip_id]/
+    _layout.tsx               ← tabs: Days | Map | Book | Vault
+    book/
+      hub.tsx                 ← 8-category grid (flights, hotels, activities, cabs, trains, dining, events, tickets)
+      hotel-day.tsx           ← day tabs + mini map + hotel platforms
+      activity-poi.tsx        ← per-POI Type A/B/C rendering
+      flight.tsx
+      cab.tsx
+      train.tsx
+      dining.tsx
+      events.tsx
+```
+
+**Affiliate partner status:**
+- Booking.com → CONFIRMED via AWIN. Use `aid` from `Affiliates:BookingComAid`
+- Agoda → register at partners.agoda.com
+- Viator → register at viator.com/partner
+- GetYourGuide → register at partner.getyourguide.com
+- MakeMyTrip / Ixigo / IRCTC / Uber / Ola / Zomato / BookMyShow → plain deeplinks (no affiliate ID required for basic deeplinks)
+- Skyscanner → DENIED. Remove from all deeplink code.
+- Kayak → DENIED. Remove from all deeplink code.
+
+See `BOOKING_ARCHITECTURE.md` for all deeplink URL formats and the Type A/B/C booking decision logic.
+
+Test: GET /api/v1/booking/options/{trip_id}/flight → returns platform deeplinks array. Booking.com hotel link contains `aid` param.
 
 ---
 
-### STEP 8 — Trip Vault
+### STEP 8 — Manual Trip Builder + Edit Mode
 `[RECOMMENDED MODEL: Claude Sonnet 4.6]`
+
+**No new cloud resources needed for this step.**
+
+#### 8A — Manual Trip Builder
+
+Files:
+```
+PlanoraApp/app/(manual-builder)/
+  setup.tsx             ← destination, dates, trip name, group size, budget tier
+  builder.tsx           ← main day-by-day canvas, + Add Spot button per day
+  spot-search.tsx       ← Google Places autocomplete sheet
+  spot-loading.tsx      ← skeleton card while enrichment runs
+
+PlanoraApp/store/
+  manualTripStore.ts    ← state for manual trip in progress
+```
+
+**Spot add flow:**
+1. User taps **+ Add Spot** on a day
+2. `spot-search.tsx` opens as a bottom sheet
+3. Google Places autocomplete returns results as user types
+4. User selects a result → `POST /api/v1/ai/enrich-spot` fires
+5. Skeleton card shown while loading
+6. Enriched POI card populates in the day
+7. Map updates with new pin
+
+**Placement logic (in `builder.tsx`):**
+- New spot always added at bottom of selected day by default
+- User can drag to reorder within the day after adding
+- Map polyline re-renders
+
+#### 8B — Edit Mode (add/delete on any trip)
+
+Edit Mode is accessible from any trip (AI-generated, manual, or package-import) via the **Edit** button (top right of trip card).
+
+Files:
+```
+PlanoraApp/components/trip/
+  EditModeOverlay.tsx       ← wraps trip card when edit=true, shows delete icons + Add Spot
+  SpotDeleteButton.tsx      ← ✕ icon per POI, confirm dialog → DELETE /api/v1/trips/{id}/days/{d}/pois/{p}
+  AddSpotSheet.tsx          ← reusable Places search + enrichment trigger
+```
+
+**Delete flow:**
+1. Edit mode active → ✕ shown on each POI card
+2. Tap ✕ → confirm dialog: "Remove [POI Name] from Day 2?"
+3. Confirm → `DELETE /api/v1/trips/{id}/days/{d}/pois/{p}`
+4. Day re-renders, map updates
+5. No AI call
+
+**Add spot placement algorithm (client-side, no AI call):**
+```typescript
+function findBestDay(newSpotLat: number, newSpotLng: number, days: Day[]): number {
+  // 1. For each day, calculate centroid of existing POIs
+  const centroids = days.map(day => ({
+    dayNumber: day.dayNumber,
+    lat: average(day.pois.map(p => p.lat)),
+    lng: average(day.pois.map(p => p.lng)),
+    poiCount: day.pois.length,
+  }));
+  // 2. Find day whose centroid is geographically nearest to new spot
+  const nearest = centroids
+    .filter(c => c.poiCount < 6)  // cap per day
+    .sort((a, b) => haversineDistance(a, newSpotLat, newSpotLng)
+                   - haversineDistance(b, newSpotLat, newSpotLng))[0];
+  // 3. If all days full (≥6 POIs), pick day with fewest POIs
+  return nearest?.dayNumber ?? dayWithFewestPois(days).dayNumber;
+}
+```
+
+Test: Edit mode opens on generated trip → delete POI → map updates → add spot → enrichment runs → spot placed correctly.
+
+---
+
+### STEP 9 — Trip Vault (replaces Bookings Tab)
+`[RECOMMENDED MODEL: Claude Sonnet 4.6]`
+
+> The Vault is now the consolidation point for ALL confirmed bookings and travel documents.
+> The old "Bookings" tab is GONE. Vault is Tab 3 in bottom nav.
 
 ```
 ╔══════════════════════════════════════════╗
 ║         [CLOUD SETUP REQUIRED]           ║
 ╠══════════════════════════════════════════╣
 ║ Resource 1: Azure Blob Storage           ║
-║ Step 1: portal.azure.com (already in     ║
-║         planora-rg from Step 4 setup)   ║
-║ Step 2: Create Resource → Storage        ║
-║         Account → planoravault          ║
-║ Step 3: Container: vault-documents       ║
-║         Access: Private                 ║
-║ Step 4: Access keys → Copy              ║
-║         connection string →             ║
-║         appsettings AzureStorage:       ║
-║         ConnectionString                ║
-║                                          ║
-║ Resource 2: Azure AI Document            ║
-║             Intelligence                ║
-║ Step 5: Create Resource → Document       ║
-║         Intelligence (Form Recognizer) ║
-║ Step 6: Resource group: planora-rg       ║
-║         Region: Central India            ║
-║         Pricing: Free F0               ║
-║ Step 7: Keys and Endpoint → Copy        ║
-║         Key 1 + Endpoint →             ║
-║         appsettings DocIntelligence:*  ║
+║ Resource 2: Azure AI Document Intel.     ║
+║ → Follow FULL_PROCESS.md Steps 8–9      ║
 ╚══════════════════════════════════════════╝
 ⏸ PAUSED — Waiting for confirmation.
 ```
 
 Files:
-- `PlanoraApp.API/Services/VaultService/VaultController.cs`
+- `PlanoraApp.API/Services/VaultService/VaultController.cs` — includes `POST /save-booking` endpoint
 - `PlanoraApp.API/Services/VaultService/BlobStorageService.cs`
-- `PlanoraApp.API/Services/VaultService/OcrParserService.cs` — Azure AI Document Intelligence
+- `PlanoraApp.API/Services/VaultService/OcrParserService.cs`
 - `PlanoraApp/app/vault/index.tsx` — timeline sorted by travel_date
 - `PlanoraApp/app/vault/upload.tsx` — PDF picker + camera + QR scanner
+- `PlanoraApp/app/vault/save-booking.tsx` — manual save after external booking
 
-MMKV: write all vault items to `vault:{trip_id}` on fetch. Read MMKV first on load, refresh in background.
+**"Save to Vault" flow (from trip booking section):**
+- After user taps a booking deeplink, a "Saved it? Add to Vault" prompt appears on return to app
+- User taps → enters booking reference + confirmation number (optional)
+- `POST /api/v1/vault/save-booking` → creates vault_item record
+- Appears in Vault timeline
 
-Test: upload PDF → OCR parses → timeline shows → accessible offline.
+MMKV: write all vault items to `vault:{trip_id}` on fetch.
+
+Test: upload PDF → OCR parses → timeline shows → accessible offline. Save-booking flow works from trip detail.
 
 ---
 
-### STEP 9 — SafeTravel Shield
+### STEP 10 — SafeTravel Shield
 `[RECOMMENDED MODEL: Claude Opus 4.6]`
 
 ```
@@ -620,94 +634,80 @@ Test: upload PDF → OCR parses → timeline shows → accessible offline.
 ║         [CLOUD SETUP REQUIRED]           ║
 ╠══════════════════════════════════════════╣
 ║ Resource 1: Azure Communication Services ║
-║ Step 1: portal.azure.com → Create        ║
-║         Resource → Communication        ║
-║         Services                        ║
-║ Step 2: Resource group: planora-rg       ║
-║         Resource name: planora-acs       ║
-║         Region: Central India            ║
-║ Step 3: Go to resource → Keys →         ║
-║         Copy Primary Connection String  ║
-║         → appsettings                  ║
-║         AzureCommunicationServices:     ║
-║         ConnectionString               ║
-║ Step 4: Phone Numbers → Get a number    ║
-║         (toll-free or local)           ║
-║         Copy number →                  ║
-║         AzureCommunicationServices:    ║
-║         FromPhone                      ║
-║                                          ║
 ║ Resource 2: Firebase (push only)         ║
-║ Step 5: console.firebase.google.com      ║
-║ Step 6: New project → Cloud Messaging    ║
-║ Step 7: Add Android app →               ║
-║         package: com.planora.app        ║
-║         Download google-services.json  ║
-║         → PlanoraApp/android/app/      ║
-║ Step 8: Add iOS app →                   ║
-║         bundle: com.planora.app         ║
-║         Download GoogleService-Info.   ║
-║         plist → PlanoraApp/ios/        ║
-║ Step 9: Project settings →              ║
-║         Cloud Messaging →              ║
-║         Server key →                   ║
-║         appsettings Firebase:ServerKey ║
+║ → Follow FULL_PROCESS.md Steps 10–11    ║
 ╚══════════════════════════════════════════╝
 ⏸ PAUSED — Waiting for confirmation.
 ```
 
-**Azure Communication Services SMS (replaces Twilio):**
+**Azure Communication Services SMS:**
 ```csharp
 dotnet add package Azure.Communication.Sms
-
 var client = new SmsClient(config["AzureCommunicationServices:ConnectionString"]);
-SmsSendResult result = await client.SendAsync(
-    from: config["AzureCommunicationServices:FromPhone"],
-    to: recipientPhone,
-    message: sosMessage
-);
+await client.SendAsync(from: config["AzureCommunicationServices:FromPhone"],
+    to: recipientPhone, message: sosMessage);
 ```
 
 Files:
 - `PlanoraApp.API/Services/SafetyService/SafetyController.cs`
 - `PlanoraApp.API/Services/SafetyService/EmergencyContactsService.cs`
-- `PlanoraApp.API/Services/SafetyService/SosService.cs` — Azure Communication Services SMS + Firebase push
+- `PlanoraApp.API/Services/SafetyService/SosService.cs`
 - `PlanoraApp.API/Services/SafetyService/ProximityService.cs`
 - `PlanoraApp/app/safety/shield.tsx`
 - `PlanoraApp/app/safety/sos.tsx`
 - `PlanoraApp/components/ui/SafetyFab.tsx` — rendered in root `_layout.tsx`, visible everywhere
 
-SOS rules — strict:
+SOS rules:
 - 3000ms LongPressGestureHandler minimum
-- Disclaimer modal → biometric (expo-local-authentication) → POST /safety/sos
-- Log every attempt regardless of outcome
+- Disclaimer modal → biometric → POST /safety/sos
+- Log every attempt
 - NEVER fire on single tap
 
 Test: 3s hold → disclaimer → biometric → inner circle notified via SMS + push.
 
 ---
 
-### STEP 10 — Finance + Tours + Polish
+### STEP 11 — Finance + Package Browse + Polish
 `[RECOMMENDED MODEL: Sonnet 4.6 for files, Gemini 2.5 Pro for codebase review]`
 
-Finance:
+#### Finance:
 - `PlanoraApp/app/finance/expenses.tsx`
 - `PlanoraApp/app/finance/split.tsx`
 - `PlanoraApp/app/finance/report.tsx`
 - `PlanoraApp.API/Services/FinanceService/ExpenseController.cs`
 
-Tours:
-- `PlanoraApp/app/tours/search.tsx`
-- `PlanoraApp/app/tours/package-detail.tsx`
-- `PlanoraApp.API/Services/TourService/TourController.cs`
+#### Package Browse (Module 1B):
+```
+PlanoraApp/app/(packages)/
+  browse.tsx            ← destination input + date range + duration + type chips
+  results.tsx           ← Section A (Booking.com AWIN deeplinks) + Section B (other platform chips)
+  import-prompt.tsx     ← "I've booked a package — import it" CTA → routes to Manual Builder
+```
 
-Polish checklist:
-- [ ] Dark mode (Planora dark theme from theme.ts)
+**Booking.com tours/activities deeplink (AWIN):**
+```
+https://www.booking.com/attractions/searchresults.html
+  ?ss={DESTINATION_ENCODED}
+  &checkin={YYYY-MM-DD}&checkout={YYYY-MM-DD}
+  &aid={BOOKING_AID}
+```
+
+**Other platform chips (Section B — plain deeplinks):**
+```
+Viator:           https://www.viator.com/search/{DESTINATION}?startDate={DATE}
+GetYourGuide:     https://www.getyourguide.com/s/?q={DESTINATION}&date_from={DATE}
+MakeMyTrip Hols:  https://www.makemytrip.com/holidays-india/{DESTINATION}/
+Thomas Cook:      https://www.thomascook.in/holidays/{DESTINATION}/
+Club Mahindra:    https://www.clubmahindra.com/holiday-destinations
+```
+
+#### Polish checklist:
+- [ ] Dark mode (Planora dark theme)
 - [ ] Loading skeletons
 - [ ] Error boundaries
 - [ ] Offline banners (@react-native-community/netinfo)
 - [ ] Empty states
-- [ ] App icon (logo.jpg resized to 1024x1024)
+- [ ] App icon (logo.jpg 1024x1024)
 - [ ] Splash screen
 - [ ] TestFlight + Play Store internal track
 
@@ -762,11 +762,12 @@ Cloud Resources:
   [ ] OpenAI API key
   [ ] Azure Cache for Redis — planora-cache
   [ ] Azure Service Bus — planora-bus (queue: ai-generation-jobs)
-  [ ] Google Cloud APIs (Places, Matrix, Maps)
+  [ ] Google Cloud APIs (Places, Matrix, Maps) — GCP Free Plan active
   [ ] Azure Blob Storage — planoravault
   [ ] Azure AI Document Intelligence
   [ ] Azure Communication Services — planora-acs
   [ ] Firebase project (push notifications only)
+  [ ] AWIN account + Booking.com affiliate programme approved
 
 App Status:
   [ ] PlanoraApp running (npx expo start)
@@ -774,4 +775,6 @@ App Status:
   [ ] Onboarding images loading correctly
   [ ] .env created + gitignored
   [ ] appsettings.Development.json created + gitignored
+  [ ] Pre-wizard 3-card screen visible
+  [ ] No Bookings tab in bottom nav (Vault is Tab 3)
 ```

@@ -7,10 +7,9 @@ import urllib.request
 
 API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_GEMINI_API_KEY")
 PREFERRED_MODELS = [
-    "gemini-3.1-pro-preview",
-    "gemini-3-pro-preview",
     "gemini-2.5-pro",
-    "gemini-2.0-flash",
+    "gemini-3.0-flash",
+    "gemini-3.1-flash-lite",
     "gemini-2.5-flash",
 ]
 

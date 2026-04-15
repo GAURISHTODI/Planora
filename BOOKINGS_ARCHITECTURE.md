@@ -1,26 +1,37 @@
-# PLANORA — BOOKING ARCHITECTURE (FINAL)
+# PLANORA — BOOKING ARCHITECTURE (v2.0)
 > Feed alongside PROJECT_BIBLE.md and AGENT_INSTRUCTIONS.md
 > This fully replaces Step 7 in AGENT_INSTRUCTIONS.md
+> **v2.0:** Skyscanner DENIED. Kayak DENIED. Primary affiliate is now **Booking.com via AWIN**. GCP Free Plan active. Bookings Tab removed — booking options are contextual inside each trip.
+
+---
+
+## CRITICAL CHANGES FROM v1.0
+
+| Item | v1.0 | v2.0 |
+|------|------|------|
+| Skyscanner | Primary flight affiliate | DENIED — remove entirely |
+| Kayak | Secondary | DENIED — remove entirely |
+| Booking.com | Hotel affiliate | CONFIRMED via AWIN — primary for hotels AND activities |
+| Bookings Tab | Standalone bottom nav tab | REMOVED — bookings are inside trips |
+| Booking access | Separate /bookings route | Inside trip card: Days \| Map \| Book \| Vault tabs |
 
 ---
 
 ## 1. CORE MENTAL MODEL
 
 Every bookable item in Planora falls into exactly one of three booking types.
-The agent must determine booking type at POI creation time (during Research Agent) and store it.
-The Booking Section UI then reads this field and renders accordingly.
+Determined at POI creation time (Research Agent / Spot Enrichment Agent). Stored on POI.
 
 ```
 BOOKING_TYPE_A — Aggregator Redirect
-  Use when: commodity item (flights, hotels, car rentals)
+  Use when: commodity item (flights, hotels, cabs, generic activities)
   How: construct affiliate deeplink with trip params pre-filled
-  Platforms: Skyscanner, Booking.com, Agoda, MakeMyTrip, Ixigo, Viator, Uber, Ola
+  Platforms: Booking.com (AWIN), Agoda, MakeMyTrip, Ixigo, Viator, Uber, Ola
 
 BOOKING_TYPE_B — Official Website Redirect
   Use when: specific venue with its own ticketing (museum, fort, monument, show, park)
-  How: official_website + booking_url fetched by Research Agent during generation
+  How: official_website + booking_url fetched during POI enrichment
   Source: Google Places API `website` field + GPT-4o enrichment
-  Examples: Colosseum, Louvre, Vatican, Amber Fort, India Gate, local govt sites
 
 BOOKING_TYPE_C — Offline / Gate Only
   Use when: no online booking exists for this place
@@ -28,7 +39,7 @@ BOOKING_TYPE_C — Offline / Gate Only
   Do NOT show any booking button — show "Buy at gate" badge instead
 ```
 
-**Decision rule (stored on every POI as `booking_type` field):**
+**Decision rule (stored on every POI as `booking_type`):**
 ```
 IF poi.booking_url is not null       → BOOKING_TYPE_B
 ELSE IF poi.category in              → BOOKING_TYPE_A
@@ -40,9 +51,9 @@ ELSE                                 → BOOKING_TYPE_C (offline only)
 
 ---
 
-## 2. DATA MODEL CHANGES
+## 2. DATA MODEL
 
-### Addition to `places_of_interest` MongoDB document:
+### POI document (Cosmos DB):
 ```json
 {
   "poi_id": "UUID",
@@ -64,7 +75,7 @@ ELSE                                 → BOOKING_TYPE_C (offline only)
 }
 ```
 
-### New field on `itinerary_days`:
+### Day document — `booking_summary` field:
 ```json
 {
   "day_id": "UUID",
@@ -78,23 +89,21 @@ ELSE                                 → BOOKING_TYPE_C (offline only)
 
 ---
 
-## 3. RESEARCH AGENT EXTENSION (Build Step 6)
+## 3. POI ENRICHMENT (Research Agent + Spot Enrichment Agent)
 
-This is the communication channel between itinerary generation and booking.
-The Research Agent fetches all booking data during trip creation.
-No separate API call is ever needed at booking time for Type B items.
+This enrichment runs in two contexts:
+- **Full AI generation:** ResearchAgent calls `EnrichPoiWithBookingData()` for every non-hotel/cab POI
+- **Manual Builder / Edit Mode add:** SpotEnrichmentAgent calls the same enrichment logic per spot
 
-### ResearchAgent.cs — extend POI fetch:
+### EnrichPoiWithBookingData (C#):
 
 ```csharp
 private async Task<PlaceOfInterest> EnrichPoiWithBookingData(
     PlaceOfInterest poi,
     GooglePlaceDetails googleDetails)
 {
-    // Step 1: Store official website from Google Places API directly
-    poi.OfficialWebsite = googleDetails.Website; // Google Places `website` field
+    poi.OfficialWebsite = googleDetails.Website;
 
-    // Step 2: GPT-4o enrichment call for ticketing details
     var prompt = $"""
         Place: {poi.Name}
         City: {poi.City}, {poi.Country}
@@ -128,73 +137,42 @@ private async Task<PlaceOfInterest> EnrichPoiWithBookingData(
 }
 ```
 
-### When to call this:
-- Called for EVERY POI during Research Agent execution
-- Only if `poi.category` is NOT in [hotel, cab, car_rental, dining_generic]
-- Hotels/cabs/flights → always BOOKING_TYPE_A, skip enrichment
-- Monuments/museums/parks/shows/experiences → always enrich
-
-### GPT-4o knowledge covers (no web search needed):
-- All major world museums: Louvre, Uffizi, MoMA, British Museum, Prado
-- Major monuments: Colosseum, Eiffel Tower, Sagrada Familia, Acropolis
-- Indian ASI monuments: Taj Mahal, Red Fort, Qutub Minar, Humayun's Tomb
-- Indian state monuments: Amber Fort, Mysore Palace, Ajanta/Ellora
-- Theme parks, national parks with entry systems
-- Opera houses, major theatres
-
 ### Fallback chain when GPT-4o returns null booking_url:
 ```
 1. Use official_website from Google Places directly (still Type B)
 2. If official_website also null → Google search redirect:
    https://www.google.com/search?q={POI_NAME}+{CITY}+official+tickets+online
-   (booking_type stays B — user will find it)
 3. If poi.is_free = true → booking_type = C, show "Free entry" badge
 4. If none of above → booking_type = C, show "Buy at gate" badge
 ```
 
 ---
 
-## 4. AFFILIATE PROGRAM REGISTRATIONS
+## 4. AFFILIATE PROGRAMME STATUS
 
-Register on all before building. Get your IDs. Store in appsettings.
+| Platform | Status | Register At | ID Field |
+|----------|--------|------------|----------|
+| **Booking.com (via AWIN)** | ✅ CONFIRMED | awin.com → Booking.com programme | `aid` |
+| Skyscanner | ❌ DENIED | — | — |
+| Kayak | ❌ DENIED | — | — |
+| Agoda | Pending | partners.agoda.com | `cid` |
+| Viator | Pending | viator.com/partner | `mcid` |
+| GetYourGuide | Pending | partner.getyourguide.com | `partner_id` |
+| MakeMyTrip | Plain deeplink | — | utm params only |
+| Ixigo | Plain deeplink | — | — |
+| Others | Plain deeplink | — | — |
 
-| Platform | Register At | ID Field | Commission |
-|----------|------------|----------|------------|
-| Skyscanner | partners.skyscanner.net (via Impact.com) | mediaPartnerId | Up to 20% |
-| Booking.com | booking.com/affiliate-program | aid | 25–35% of their cut |
-| Agoda | partners.agoda.com | cid | Variable |
-| Viator | viator.com/partner | mcid | 8% |
-| GetYourGuide | partner.getyourguide.com | partner_id | 8% |
-| MakeMyTrip | refer.makemytrip.com | utm tracking | Fixed |
-| Ixigo | affiliate.ixigo.com | affiliate code | Fixed |
+> For platforms without affiliate approval, use plain deeplinks. They still provide user value and a smooth experience. Affiliate IDs can be added later without changing the deeplink structure.
 
 ---
 
-## 5. COMPLETE DEEPLINK FORMATS — BOOKING_TYPE_A
+## 5. COMPLETE DEEPLINK FORMATS
 
 ### 5A. FLIGHTS
 
-**Skyscanner (primary — always use first)**
-```
-One-way:
-https://skyscanner.net/g/referrals/v1/flights/day-view/
-  ?origin={IATA_ORIGIN}
-  &destination={IATA_DEST}
-  &outboundDate={YYYY-MM-DD}
-  &adultsv2={PAX}
-  &currency=INR&locale=en-IN&market=IN
-  &mediaPartnerId={SKYSCANNER_PARTNER_ID}
+> ⚠ Skyscanner and Kayak are NOT to be used — both denied. Use the below only.
 
-Return:
-https://skyscanner.net/g/referrals/v1/flights/day-view/
-  ?origin={IATA_ORIGIN}&destination={IATA_DEST}
-  &outboundDate={TRIP_START}&inboundDate={TRIP_END}
-  &adultsv2={PAX}
-  &currency=INR&locale=en-IN&market=IN
-  &mediaPartnerId={SKYSCANNER_PARTNER_ID}
-```
-
-**MakeMyTrip**
+**MakeMyTrip (primary for flights)**
 ```
 https://www.makemytrip.com/flights/international-flights/
   {ORIGIN}-to-{DEST}/{DDMMYYYY}/
@@ -217,21 +195,19 @@ https://www.cleartrip.com/flights/results/
 
 ---
 
-### 5B. HOTELS (MAP-BASED — KEY FEATURE)
+### 5B. HOTELS (MAP-BASED)
 
 Hotel search uses geographic center of that day's POI cluster.
-This means hotels shown are near where user actually spends the day.
 
-**Center calculation (run per day, not per trip):**
+**Center calculation (run per day):**
 ```csharp
 var centerLat = day.Pois.Average(p => p.Lat);
 var centerLng = day.Pois.Average(p => p.Lng);
-// Use these in hotel deeplinks — radius 2km
 ```
 
-**Booking.com (primary)**
+**Booking.com (primary — AWIN confirmed)**
 ```
-Map-based (use this — most precise):
+Map-based:
 https://www.booking.com/searchresults.html
   ?latitude={CENTER_LAT}&longitude={CENTER_LNG}&radius=2
   &checkin_year={YYYY}&checkin_month={M}&checkin_monthday={D}
@@ -239,7 +215,7 @@ https://www.booking.com/searchresults.html
   &group_adults={PAX}&no_rooms=1
   &aid={BOOKING_AID}
 
-City fallback (if lat/lng unavailable):
+City fallback:
 https://www.booking.com/searchresults.html
   ?ss={CITY_URL_ENCODED}
   &checkin_year={YYYY}&checkin_month={M}&checkin_monthday={D}
@@ -260,13 +236,20 @@ https://www.agoda.com/search
 https://www.makemytrip.com/hotels/hotel-listing/
   ?city={CITY_CODE}
   &checkin={DDMMYYYY}&checkout={DDMMYYYY}
-  &roomStayQualifier=2e0e
-  &country=IN
+  &roomStayQualifier=2e0e&country=IN
 ```
 
 ---
 
-### 5C. ACTIVITIES (generic — when no specific booking_url exists)
+### 5C. ACTIVITIES & TOURS
+
+**Booking.com Activities (AWIN — use as primary for generic activities)**
+```
+https://www.booking.com/attractions/searchresults.html
+  ?ss={CITY_OR_POI_NAME_ENCODED}
+  &checkin={YYYY-MM-DD}&checkout={YYYY-MM-DD}
+  &aid={BOOKING_AID}
+```
 
 **Viator**
 ```
@@ -294,11 +277,14 @@ https://m.uber.com/ul/?action=setPickup
   &dropoff[latitude]={DROP_LAT}&dropoff[longitude]={DROP_LNG}
   &dropoff[nickname]={DROP_NAME_ENCODED}
 
-Logic: pickup = current hotel lat/lng, drop = first POI of the day
+Logic: pickup = hotel lat/lng, drop = first POI of the day
 ```
 
 **Ola**
 ```
+App deeplink (try first):
+ola://open?lat={LAT}&lng={LNG}&drop_lat={LAT}&drop_lng={LNG}
+
 Web fallback:
 https://book.olacabs.com/
   ?pickup_lat={LAT}&pickup_lng={LNG}
@@ -306,9 +292,6 @@ https://book.olacabs.com/
   &drop_lat={LAT}&drop_lng={LNG}
   &drop_name={DROP_ENCODED}
   &utm_source=planora
-
-App deeplink (try first with Linking.canOpenURL):
-ola://open?lat={LAT}&lng={LNG}&drop_lat={LAT}&drop_lng={LNG}
 ```
 
 ---
@@ -320,10 +303,10 @@ ola://open?lat={LAT}&lng={LNG}&drop_lat={LAT}&drop_lng={LNG}
 https://www.irctc.co.in/nget/train-search
   ?from={STATION_CODE}&to={STATION_CODE}
   &date={YYYY-MM-DD}&quota=GN
-  &class=3A  (SL=Sleeper, 3A=AC3, 2A=AC2, 1A=AC1)
+  &class=3A
 ```
 
-**ConfirmTkt (better UX)**
+**ConfirmTkt**
 ```
 https://confirmtkt.com/trains/
   {ORIGIN_STATION}-to-{DEST_STATION}
@@ -336,7 +319,6 @@ https://confirmtkt.com/trains/
 
 **Zomato**
 ```
-Near day POIs:
 https://www.zomato.com/{CITY_SLUG}/restaurants
   ?lat={CENTER_LAT}&lng={CENTER_LNG}&rad=500
 ```
@@ -362,7 +344,7 @@ https://www.ticketmaster.com/search
   ?q={EVENT_OR_VENUE_NAME}&dateStart={YYYY-MM-DD}
 ```
 
-**Eventbrite (global)**
+**Eventbrite**
 ```
 https://www.eventbrite.com/d/{COUNTRY_SLUG}/{CITY_SLUG}/
   ?q={QUERY}&start_date={YYYY-MM-DD}
@@ -372,69 +354,44 @@ https://www.eventbrite.com/d/{COUNTRY_SLUG}/{CITY_SLUG}/
 
 ## 6. BOOKING_TYPE_B — DIRECT OFFICIAL WEBSITE FLOW
 
-For Type B POIs, official_website and booking_url are already stored on the POI.
-No API call needed at booking time. Just read and redirect.
+Official website and booking_url are pre-fetched during POI enrichment.
+No API call at booking time. Just read and redirect.
 
-### Known portals by region (for fallback hints in prompt):
+### Known portals (GPT-4o fallback reference):
 
-**India — Central:**
+**India — Central (ASI):**
 ```
-ASI monuments:    https://asi.payumoney.com/
-                  Search: https://asi.payumoney.com/index.php#monuments
+https://asi.payumoney.com/
 ```
 
 **India — State:**
 ```
-Rajasthan:        https://www.rajasthantourism.gov.in/
-Maharashtra:      https://www.maharashtratourism.gov.in/
-Karnataka:        https://www.karnatakatourism.org/
-Kerala:           https://www.keralatourism.org/
-Tamil Nadu:       https://www.tamilnadutourism.tn.gov.in/
+Rajasthan: https://www.rajasthantourism.gov.in/
+Maharashtra: https://www.maharashtratourism.gov.in/
+Karnataka: https://www.karnatakatourism.org/
+Kerala: https://www.keralatourism.org/
+Tamil Nadu: https://www.tamilnadutourism.tn.gov.in/
 ```
 
 **Europe:**
 ```
-Italy (Colosseum, Forum): https://www.coopculture.it/en/
-Vatican:          https://www.museivaticani.va/
-Louvre:           https://www.louvre.fr/en/
-Uffizi (Florence): https://www.uffizi.it/en/
-Sagrada Familia:  https://sagradafamilia.org/en/
-Acropolis:        https://etickets.tap.gr/
-Eiffel Tower:     https://www.toureiffel.paris/en/
-```
-
-**UK:**
-```
-National museums: generally free, no ticket needed (Type C)
-Tower of London:  https://www.hrp.org.uk/
-Stonehenge:       https://www.english-heritage.org.uk/
+Italy (Colosseum): https://www.coopculture.it/en/
+Vatican: https://www.museivaticani.va/
+Louvre: https://www.louvre.fr/en/
+Eiffel Tower: https://www.toureiffel.paris/en/
+Sagrada Familia: https://sagradafamilia.org/en/
+Acropolis: https://etickets.tap.gr/
 ```
 
 **USA:**
 ```
-National Parks:   https://www.recreation.gov/
-Smithsonian:      Free (Type C)
-MoMA:             https://www.moma.org/tickets/
+National Parks: https://www.recreation.gov/
+MoMA: https://www.moma.org/tickets/
 ```
-
-**Asia:**
-```
-Angkor Wat:       https://www.angkorwatticket.com/
-Forbidden City:   https://gugong.emuseum.com/
-Bali temples:     Generally at-gate cash (Type C)
-Japan shrines:    Generally free (Type C) except some:
-                  https://www.fushimi-inari.jp/
-```
-
-> GPT-4o has this knowledge built in. The above is reference only.
-> The Research Agent's GPT-4o call will return correct URLs for all major sites.
-> This list helps when GPT-4o returns null for an obscure location.
 
 ---
 
 ## 7. BOOKING_TYPE_C — OFFLINE INFO CARD
-
-When booking_type = C, show this card instead of any booking button:
 
 ```
 ┌──────────────────────────────────────┐
@@ -451,21 +408,18 @@ When booking_type = C, show this card instead of any booking button:
 └──────────────────────────────────────┘
 ```
 
-"Search Online" button → Google search fallback:
-```
-https://www.google.com/search?q={POI_NAME}+{CITY}+tickets+entry
-```
+"Search Online" → `https://www.google.com/search?q={POI_NAME}+{CITY}+tickets+entry`
 
 ---
 
-## 8. BOOKING SECTION UI FLOW
+## 8. BOOKING UI FLOW (inside Trip Card — no standalone Bookings tab)
 
-### Entry Points
-- Trip Card → "Book" tab (alongside Days, Map, Vault tabs)
-- Each day card → "Book for Day {N}" shortcut button
-- Each POI card → booking chip showing its type
+### Entry Points:
+- Trip Card → "Book" tab (alongside Days, Map, Vault within trip detail)
+- Each POI card inline → booking section below the POI details
+- Each day card → "Book for Day N" shortcut
 
-### Booking Hub Screen
+### Booking Hub Screen (inside trip):
 ```
 ┌─────────────────────────────────────┐
 │  Book Your Jaipur Trip              │
@@ -482,37 +436,19 @@ https://www.google.com/search?q={POI_NAME}+{CITY}+tickets+entry
 └─────────────────────────────────────┘
 ```
 
-The "Advance booking needed" banner reads from `itinerary_days.booking_summary.advance_booking_required` — populated during generation.
-
-### Hotel Screen — Day Selector + Map
-```
-┌─────────────────────────────────────┐
-│  Hotels  [Day1] [Day2] [Day3]...    │
-├─────────────────────────────────────┤
-│  Day 2 · Dec 2 → Dec 3             │
-│  Near: City Palace area             │
-│  [Mini map of Day 2 POI cluster]    │
-│  Search radius: 2km                 │
-├─────────────────────────────────────┤
-│  🌐 Booking.com  → Open ↗          │
-│  🌐 Agoda        → Open ↗          │
-│  🌐 MakeMyTrip   → Open ↗          │
-└─────────────────────────────────────┘
-```
-
-### Activities / Tickets Screen — POI-Driven
+### Activities / Tickets Screen — POI-Driven:
 ```
 Day 2 Activities
 
 Amber Fort                [Type B]
   🎫 Official Tickets ↗  (booking_url from POI)
-  Also on: Viator ↗ | GetYourGuide ↗
+  Also on: Booking.com Activities ↗ | Viator ↗
 
 City Palace Museum        [Type B]
   🎫 Official Site ↗     (official_website from POI)
 
 Street Food Walk          [Type A]
-  🎯 Viator ↗ | GetYourGuide ↗
+  🎯 Booking.com Activities ↗ | Viator ↗ | GetYourGuide ↗
 
 Albert Hall Museum        [Type C]
   🎫 Buy at gate · ₹40 · Open 10am–5pm
@@ -534,7 +470,6 @@ public async Task<IActionResult> GetBookingOptions(
     var trip = await _tripRepo.GetByIdAsync(tripId);
     if (trip == null) return NotFound();
 
-    // For hotel: get day POI center
     double centerLat = 0, centerLng = 0;
     ItineraryDay? day = null;
     if (dayNumber.HasValue)
@@ -547,7 +482,6 @@ public async Task<IActionResult> GetBookingOptions(
         }
     }
 
-    // Check cache
     var cacheKey = $"booking:{tripId}:{category}:{dayNumber}";
     var cached = await _cache.GetAsync<List<BookingOption>>(cacheKey);
     if (cached != null) return Ok(cached);
@@ -567,65 +501,6 @@ public async Task<IActionResult> GetBookingOptions(
     await _cache.SetAsync(cacheKey, options, TimeSpan.FromMinutes(15));
     return Ok(options);
 }
-
-// Activity options — key method showing Type A vs B decision
-private List<BookingOption> BuildActivityOptions(Trip trip, ItineraryDay? day)
-{
-    var options = new List<BookingOption>();
-    if (day?.Pois == null) return options;
-
-    foreach (var poi in day.Pois)
-    {
-        var poiOptions = new PoiBookingOptions { PoiId = poi.PoiId, PoiName = poi.Name };
-
-        if (poi.BookingType == "B")
-        {
-            // Type B — use pre-fetched official URL
-            if (!string.IsNullOrEmpty(poi.BookingUrl))
-                poiOptions.Options.Add(new BookingOption
-                {
-                    Platform = "Official Website",
-                    DeeplinkUrl = poi.BookingUrl,
-                    IsOfficial = true,
-                    Description = poi.BookingNotes,
-                    RequiresAdvanceBooking = poi.RequiresAdvanceBooking
-                });
-            else if (!string.IsNullOrEmpty(poi.OfficialWebsite))
-                poiOptions.Options.Add(new BookingOption
-                {
-                    Platform = "Official Website",
-                    DeeplinkUrl = poi.OfficialWebsite,
-                    IsOfficial = true
-                });
-
-            // Also offer Viator/GYG as alternatives for Type B
-            poiOptions.Options.Add(_builder.BuildViatorActivity(poi.Name, trip.Destination.City, day.Date));
-            poiOptions.Options.Add(_builder.BuildGygActivity(poi.Name, day.Date));
-        }
-        else if (poi.BookingType == "A")
-        {
-            // Type A — aggregator platforms only
-            poiOptions.Options.Add(_builder.BuildViatorActivity(poi.Name, trip.Destination.City, day.Date));
-            poiOptions.Options.Add(_builder.BuildGygActivity(poi.Name, day.Date));
-        }
-        else // Type C
-        {
-            poiOptions.IsOfflineOnly = true;
-            poiOptions.OfflineInfo = new OfflineInfo
-            {
-                EntryFee = poi.EntryFeeApprox,
-                OpeningHours = poi.OpeningHours,
-                Note = poi.BookingNotes,
-                IsFree = poi.IsFree,
-                GoogleSearchUrl = $"https://www.google.com/search?q=" +
-                    Uri.EscapeDataString($"{poi.Name} {trip.Destination.City} tickets entry")
-            };
-        }
-
-        options.Add(poiOptions);
-    }
-    return options;
-}
 ```
 
 ### AffiliateLinkBuilder.cs
@@ -636,19 +511,7 @@ public class AffiliateLinkBuilder
     private readonly IConfiguration _config;
     public AffiliateLinkBuilder(IConfiguration config) => _config = config;
 
-    // FLIGHTS
-    public BookingOption BuildSkyscannerFlight(string origin, string dest,
-        DateTime outbound, DateTime? inbound, int adults) => new()
-    {
-        Platform = "Skyscanner",
-        LogoUrl = "assets/logos/skyscanner.png",
-        DeeplinkUrl = $"https://skyscanner.net/g/referrals/v1/flights/day-view/" +
-            $"?origin={origin}&destination={dest}&outboundDate={outbound:yyyy-MM-dd}" +
-            (inbound.HasValue ? $"&inboundDate={inbound:yyyy-MM-dd}" : "") +
-            $"&adultsv2={adults}&currency=INR&locale=en-IN&market=IN" +
-            $"&mediaPartnerId={_config["Affiliates:SkyscannerPartnerId"]}"
-    };
-
+    // FLIGHTS — no Skyscanner, no Kayak
     public BookingOption BuildMakeMyTripFlight(string origin, string dest,
         DateTime outbound, int adults) => new()
     {
@@ -668,7 +531,17 @@ public class AffiliateLinkBuilder
             $"{origin}-{dest}-{outbound:ddMMyyyy}-null-E-{adults}-0-0/ONEWAY"
     };
 
-    // HOTELS
+    public BookingOption BuildCleartripFlight(string origin, string dest,
+        DateTime outbound, int adults) => new()
+    {
+        Platform = "Cleartrip",
+        LogoUrl = "assets/logos/cleartrip.png",
+        DeeplinkUrl = $"https://www.cleartrip.com/flights/results/" +
+            $"?from={origin}&to={dest}&depart_date={outbound:dd/MM/yyyy}" +
+            $"&adults={adults}&childs=0&infants=0&class=Economy&intl=n"
+    };
+
+    // HOTELS — Booking.com primary (AWIN confirmed)
     public BookingOption BuildBookingComHotel(double lat, double lng,
         DateTime checkIn, DateTime checkOut, int adults) => new()
     {
@@ -696,7 +569,18 @@ public class AffiliateLinkBuilder
             $"&rooms=1&adults={adults}&cid={_config["Affiliates:AgodaCid"]}"
     };
 
-    // ACTIVITIES
+    // ACTIVITIES — Booking.com Activities as primary (AWIN confirmed)
+    public BookingOption BuildBookingComActivities(string poiName,
+        string city, DateTime date) => new()
+    {
+        Platform = "Booking.com",
+        LogoUrl = "assets/logos/bookingcom.png",
+        DeeplinkUrl = $"https://www.booking.com/attractions/searchresults.html" +
+            $"?ss={Uri.EscapeDataString(poiName + " " + city)}" +
+            $"&checkin={date:yyyy-MM-dd}" +
+            $"&aid={_config["Affiliates:BookingComAid"]}"
+    };
+
     public BookingOption BuildViatorActivity(string poiName,
         string city, DateTime date) => new()
     {
@@ -791,10 +675,9 @@ public class AffiliateLinkBuilder
 
 ---
 
-## 10. FRONTEND — ROUTING LOGIC
+## 10. FRONTEND TYPES + ROUTING
 
 ```typescript
-// BookingOption type
 interface BookingOption {
   platform: string;
   deeplinkUrl: string;
@@ -820,9 +703,8 @@ interface PoiBookingOptions {
   };
 }
 
-// Tap handler — same for all types A and B
 const handleBookingTap = async (option: BookingOption) => {
-  await logBookingRedirect(tripId, option.platform); // analytics
+  await logBookingRedirect(tripId, option.platform);
   const canOpen = await Linking.canOpenURL(option.deeplinkUrl);
   if (canOpen) {
     await Linking.openURL(option.deeplinkUrl);
@@ -831,16 +713,11 @@ const handleBookingTap = async (option: BookingOption) => {
   }
 };
 
-// Rendering logic per POI
 const renderPoiBooking = (poi: PoiBookingOptions) => {
-  if (poi.bookingType === 'C') {
-    return <OfflineInfoCard info={poi.offlineInfo} />;
-  }
+  if (poi.bookingType === 'C') return <OfflineInfoCard info={poi.offlineInfo} />;
   return (
     <View>
-      {poi.bookingType === 'B' && poi.options[0]?.isOfficial && (
-        <OfficialBadge />  // "Official Website" highlighted at top
-      )}
+      {poi.bookingType === 'B' && poi.options[0]?.isOfficial && <OfficialBadge />}
       {poi.options.map(opt => (
         <PlatformButton key={opt.platform} option={opt} onTap={handleBookingTap} />
       ))}
@@ -851,13 +728,12 @@ const renderPoiBooking = (poi: PoiBookingOptions) => {
 
 ---
 
-## 11. APPSETTINGS ADDITIONS
+## 11. APPSETTINGS — BOOKING KEYS
 
 ```json
 {
   "Affiliates": {
-    "SkyscannerPartnerId": "PASTE_FROM_IMPACT",
-    "BookingComAid": "PASTE_FROM_BOOKING_DASHBOARD",
+    "BookingComAid": "PASTE_FROM_AWIN_DASHBOARD",
     "AgodaCid": "PASTE_FROM_AGODA",
     "ViatorMcid": "PASTE_FROM_VIATOR",
     "GygPartnerId": "PASTE_FROM_GYG"
@@ -871,23 +747,18 @@ const renderPoiBooking = (poi: PoiBookingOptions) => {
 }
 ```
 
+> Note: `SkyscannerPartnerId` key removed — Skyscanner denied.
+
 ---
 
-## 12. TIER 2 — BOOKING.COM DEMAND API (add post-launch)
+## 12. TIER 2 — BOOKING.COM DEMAND API (post-launch)
 
 Currently `Enabled: false`. Flip to true once approved as Managed Affiliate Partner.
 
 When enabled: hotel cards show with real photos + prices INSIDE Planora before redirect.
 Apply at developers.booking.com once app is live with users.
 
-```
-POST https://demandapi.booking.com/3.1/accommodations/search
-Headers: Authorization: Bearer {API_KEY}, X-Affiliate-Id: {ID}
-Body: { city_id, checkin, checkout, guests: { rooms, adults } }
-Returns: hotels with name, price, photos, rating, booking deeplink
-```
-
-Falls back to affiliate deeplink automatically if API disabled or fails.
+Falls back to AWIN affiliate deeplink automatically if API disabled or fails.
 
 ---
 
@@ -897,43 +768,44 @@ Falls back to affiliate deeplink automatically if API disabled or fails.
 PlanoraApp.API/Services/BookingService/
   BookingController.cs
   AffiliateLinkBuilder.cs
-  PriceCacheService.cs          ← Upstash Redis, 15min TTL
+  PriceCacheService.cs          ← Azure Cache for Redis, 15min TTL
   Models/BookingOption.cs
   Models/PoiBookingOptions.cs
   Models/OfflineInfo.cs
   Models/BookingRequest.cs
 
-PlanoraApp/app/bookings/
+PlanoraApp/app/trip/[trip_id]/book/
   hub.tsx                       ← 8-category grid + advance warning banner
-  compare.tsx                   ← platform list + tap handler
   hotel-day.tsx                 ← day tabs + mini map + hotel platforms
   activity-poi.tsx              ← per-POI Type A/B/C rendering
-  flight.tsx                    ← flight options with origin/dest/dates
-  cab.tsx                       ← Uber + Ola with hotel → first POI routing
+  flight.tsx                    ← MakeMyTrip, Ixigo, Cleartrip (NO Skyscanner)
+  cab.tsx                       ← Uber + Ola
   train.tsx                     ← IRCTC + ConfirmTkt
-  dining.tsx                    ← Zomato + EazyDiner near day center
+  dining.tsx                    ← Zomato + EazyDiner
   events.tsx                    ← BookMyShow + Ticketmaster + Eventbrite
 ```
 
 **Also update ResearchAgent.cs (Build Step 6):**
-- Add `EnrichPoiWithBookingData()` call for every non-hotel/non-cab POI
-- Store booking_type, booking_url, official_website, entry_fee_approx, opening_hours on POI
+- Add `EnrichPoiWithBookingData()` for every non-hotel/cab POI
+- Booking.com Activities added as primary Type A activity option
 
 ---
 
 ## 14. STEP 7 TEST CHECKLIST
 
 ```
-[ ] Type A flight → Skyscanner opens with correct IATA codes + dates
-[ ] Type A hotel Day 2 → Booking.com opens near Day 2 POI cluster (lat/lng)
+[ ] Type A flight → MakeMyTrip and Ixigo open with correct params (NO Skyscanner)
+[ ] Type A hotel Day 2 → Booking.com opens near Day 2 POI cluster + contains aid= param
+[ ] Type A activity → Booking.com Activities deeplink present + Viator/GYG alternatives
 [ ] Type B POI (e.g. Colosseum) → "Official Website" button present + correct URL
-[ ] Type B POI shows Viator/GYG as alternative below official
+[ ] Type B POI shows Booking.com Activities + Viator/GYG as alternatives below official
 [ ] Type C POI → no booking button, offline info card shown
-[ ] Type C free entry → "Free entry" badge, no fee shown
+[ ] Type C free entry → "Free entry" badge
 [ ] Uber deeplink → opens with hotel as pickup + first POI as drop
 [ ] IRCTC deeplink → correct station codes + date
-[ ] Redis cache hit → second identical request returns in <50ms
-[ ] Booking.com Demand API disabled → falls back to affiliate deeplink silently
+[ ] Redis cache hit → second identical request < 50ms
 [ ] All links open in device browser (Linking.openURL), not WebView
 [ ] Advance booking warning banner → reads from booking_summary on trip
+[ ] No Skyscanner or Kayak links anywhere in codebase
+[ ] Booking.com links all contain aid= param from AWIN
 ```
