@@ -76,15 +76,12 @@ namespace PlanoraApp.AI.Agents
             var finalData = await _budgeter.PruneByBudgetAsync(injectedData, request.BudgetTier);
             
             await NotifyAsync(request.TripId, "Day Assembly", 75, "Scheduling day hour-by-hour with meal gaps...");
-            var baseItineraryJson = await _assembler.AssembleDaysAsync(finalData, totalDays, request.TravelMode, request.Origin);
-            
-            await NotifyAsync(request.TripId, "Personalisation", 90, $"Applying custom tone for {request.GroupType} trips...");
-            var finalOutput = await _personaliser.RerankForGroupAsync(baseItineraryJson, request.GroupType);
+            var baseItineraryJson = await _assembler.AssembleDaysAsync(finalData, totalDays, request.TravelMode, request.Origin, request.GroupType);
 
             await NotifyAsync(request.TripId, "Complete", 100, "Trip Generated Successfully!");
             Console.WriteLine($"\n[ORCHESTRATOR] COMPLETE: Returning generated itinerary back to DB...\n");
 
-            return finalOutput;
+            return baseItineraryJson;
         }
     }
 }

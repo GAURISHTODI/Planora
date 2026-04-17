@@ -4,15 +4,12 @@ namespace PlanoraApp.AI
 {
     public static class SemanticKernelSetup
     {
-        public const string DefaultGeminiModel = "gemini-2.5-pro";
+        public const string DefaultGeminiModel = "gemini-2.5-flash";
 
         public static readonly string[] PreferredGeminiModels =
         {
-            "gemini-2.5-pro",
             "gemini-2.5-flash",
-            "gemini-2.0-flash",
-            "gemini-1.5-pro",
-            "gemini-1.5-flash"
+            "gemini-2.5-flash-lite"
         };
 
         public static Kernel BuildKernel(string geminiApiKey, string geminiModel = DefaultGeminiModel)

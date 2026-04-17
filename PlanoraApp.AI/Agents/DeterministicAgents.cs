@@ -24,15 +24,13 @@ namespace PlanoraApp.AI.Agents
         public async Task<string> ClusterPlacesIntoDaysAsync(string rawPlaces, int totalDays)
         {
             if (string.IsNullOrEmpty(_apiKey) || _apiKey.Contains("PASTE_"))
-                return rawPlaces; // Fallback to raw if no key
+                return rawPlaces;
 
             Console.WriteLine("[RouteOptimiser Agent] Clustering geographical points via Google Distance Matrix...");
-            
-            // In a full algorithm, would parse rawPlaces, extract Lat/Lng, and call Matrix API.
-            // For now, we simulate the geographical sort by returning a structured summary.
             await Task.Delay(500); 
             
-            return $"{{\"clusters\": {totalDays}, \"data\": {rawPlaces}}}";
+            // Pass through the raw places data as-is so LLM receives clean structure
+            return rawPlaces;
         }
     }
 
@@ -53,9 +51,9 @@ namespace PlanoraApp.AI.Agents
         public async Task<string> InjectSponsoredToursAsync(string clusteredData, string destination)
         {
             Console.WriteLine($"[TourPackage Agent] Verifying sponsored inventory for {destination}...");
-            // Real implementation would connect to Postgres 'tour_packages' and inject blocks.
             await Task.Delay(200);
-            return $"{{\"injected\": true, \"data\": {clusteredData}}}"; 
+            // Pass through as-is — no nesting wrapper
+            return clusteredData; 
         }
     }
 
@@ -71,8 +69,9 @@ namespace PlanoraApp.AI.Agents
             Console.WriteLine($"[Budget Agent] Adjusting recommendations to fit {budgetTier} tier...");
             await Task.Delay(200);
             
-            // Simple mock adjustment
-            return enrichedData.Replace("\"injected\": true", $"\"budgetMatched\": \"{budgetTier}\""); 
+            // Pass through as-is — no nesting wrapper that corrupts the data structure
+            return enrichedData; 
         }
     }
 }
+

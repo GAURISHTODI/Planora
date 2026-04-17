@@ -6,20 +6,20 @@ namespace PlanoraApp.AI.Agents
 {
     public interface IDayAssemblyAgent
     {
-        Task<string> AssembleDaysAsync(string finalFilteredData, int totalDays, string travelMode = null, string origin = null);
+        Task<string> AssembleDaysAsync(string finalFilteredData, int totalDays, string travelMode = null, string origin = null, string groupType = null);
     }
 
     public class DayAssemblyAgent : IDayAssemblyAgent
     {
         private readonly string _apiKey;
-        private static readonly HttpClient _http = new();
+        private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(180) };
 
         public DayAssemblyAgent(string geminiApiKey)
         {
             _apiKey = geminiApiKey;
         }
 
-        public async Task<string> AssembleDaysAsync(string finalFilteredData, int totalDays, string travelMode = null, string origin = null)
+        public async Task<string> AssembleDaysAsync(string finalFilteredData, int totalDays, string travelMode = null, string origin = null, string groupType = null)
         {
             Console.WriteLine("[DayAssembly Agent] Calling Gemini REST API to write structured JSON itinerary...");
 
@@ -58,6 +58,9 @@ INTELLIGENT PLANNING RULES:
 4. ENERGY MANAGEMENT: Balance high-energy activities with relaxed breaks. Don't overschedule.
 5. AIRPORT PROXIMITY: If flying in/out, keep first/last day activities near arrival/departure points.
 6. CULTURAL INSIGHTS: Consider local siesta times, prayer breaks, weekly closures.
+
+REQUIRED TONE AND PERSONALISATION:
+- Tone must be tailored for {groupType ?? "general"} travelers. Write appealing descriptions specifically for them.
 
 BOOKING TYPE CLASSIFICATION (PLANORA ARCHITECTURE):
 - BOOKING_TYPE_A ('A'): Flights, hotels, cabs, generic activities, dining - use aggregators
@@ -101,16 +104,15 @@ Return ONLY valid JSON following this exact schema:
 
             try
             {
-                // Small delay to avoid 429 rate limiting from back-to-back Gemini calls
-                await Task.Delay(2000);
-
                 HttpResponseMessage? response = null;
                 string? responseBody = null;
 
-                // Try Pro first, then fall back to the models that have been working in this project.
+                // Try models with exponential backoff for rate limits
                 var models = SemanticKernelSetup.PreferredGeminiModels;
+                int retryCount = 0;
+                const int maxRetries = 3;
 
-                // Retry logic with model failover
+                // Retry logic with model failover and exponential backoff
                 foreach (var model in models)
                 {
                     var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={_apiKey}";
@@ -131,7 +133,7 @@ Return ONLY valid JSON following this exact schema:
                         generationConfig = new
                         {
                             temperature = 0.5,
-                            maxOutputTokens = 8192,
+                            maxOutputTokens = 65536,
                             responseMimeType = "application/json"
                         }
                     };
@@ -139,23 +141,46 @@ Return ONLY valid JSON following this exact schema:
                     var json = JsonSerializer.Serialize(requestBody);
                     var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                    response = await _http.PostAsync(url, content);
-                    responseBody = await response.Content.ReadAsStringAsync();
+                    // Exponential backoff retry for same model on 429
+                    for (int attempt = 0; attempt < maxRetries; attempt++)
+                    {
+                        response = await _http.PostAsync(url, content);
+                        responseBody = await response.Content.ReadAsStringAsync();
 
-                    Console.WriteLine($"[DayAssembly Agent] {model} HTTP Status: {response.StatusCode}");
+                        Console.WriteLine($"[DayAssembly Agent] {model} HTTP Status: {response.StatusCode} (attempt {attempt + 1}/{maxRetries})");
 
-                    if (response.IsSuccessStatusCode) break;
+                        if (response.IsSuccessStatusCode)
+                        {
+                            retryCount = 0; // Reset retry count on success
+                            break;
+                        }
 
-                    // If 429 (quota) or 503 (unavailable), try next model
+                        // If 429 (quota) or 503 (unavailable), use exponential backoff
+                        if ((int)response.StatusCode == 429 || (int)response.StatusCode == 503)
+                        {
+                            var delay = (int)Math.Pow(2, attempt) * 1000; // 1s, 2s, 4s
+                            Console.WriteLine($"[DayAssembly Agent] Rate limited ({response.StatusCode}), waiting {delay}ms before retry...");
+                            await Task.Delay(delay);
+                            continue;
+                        }
+                        else
+                        {
+                            break; // Non-retryable error (400, 403, 404, etc.)
+                        }
+                    }
+
+                    if (response!.IsSuccessStatusCode) break;
+
+                    // If all retries failed for this model, try next model
                     if ((int)response.StatusCode == 429 || (int)response.StatusCode == 503)
                     {
-                        Console.WriteLine($"[DayAssembly Agent] {model} unavailable ({response.StatusCode}), trying next model...");
-                        await Task.Delay(1000);
+                        Console.WriteLine($"[DayAssembly Agent] {model} still unavailable after retries, trying next model...");
+                        await Task.Delay(2000); // Extra delay before trying next model
                         continue;
                     }
                     else
                     {
-                        break; // Non-retryable error (400, 403, etc.)
+                        break; // Non-retryable error
                     }
                 }
 
@@ -299,7 +324,7 @@ Return ONLY valid JSON following this exact schema:
     public class PersonalisationAgent : IPersonalisationAgent
     {
         private readonly string _apiKey;
-        private static readonly HttpClient _http = new();
+        private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(180) };
 
         public PersonalisationAgent(string geminiApiKey)
         {
@@ -316,47 +341,65 @@ Itinerary: {jsonItinerary}";
 
             try
             {
-                // Try Pro first, then fall back to the models that have been working in this project.
+                // Try models with exponential backoff for rate limits
                 var models = SemanticKernelSetup.PreferredGeminiModels;
                 HttpResponseMessage? response = null;
                 string? responseBody = null;
+                const int maxRetries = 3;
 
                 foreach (var model in models)
                 {
                     var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={_apiKey}";
 
-                var requestBody = new
-                {
-                    contents = new[]
+                    var requestBody = new
                     {
-                        new
+                        contents = new[]
                         {
-                            parts = new[]
+                            new
                             {
-                                new { text = prompt }
+                                parts = new[]
+                                {
+                                    new { text = prompt }
+                                }
                             }
+                        },
+                        generationConfig = new
+                        {
+                            temperature = 0.7,
+                            maxOutputTokens = 65536,
+                            responseMimeType = "application/json"
                         }
-                    },
-                    generationConfig = new
-                    {
-                        temperature = 0.7,
-                        maxOutputTokens = 8192,
-                        responseMimeType = "application/json"
-                    }
-                };
+                    };
 
                     var json = JsonSerializer.Serialize(requestBody);
                     var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                    response = await _http.PostAsync(url, content);
-                    responseBody = await response.Content.ReadAsStringAsync();
+                    // Exponential backoff retry for same model on 429
+                    for (int attempt = 0; attempt < maxRetries; attempt++)
+                    {
+                        response = await _http.PostAsync(url, content);
+                        responseBody = await response.Content.ReadAsStringAsync();
 
-                    if (response.IsSuccessStatusCode) break;
+                        Console.WriteLine($"[Personalisation Agent] {model} HTTP Status: {response.StatusCode} (attempt {attempt + 1}/{maxRetries})");
+
+                        if (response.IsSuccessStatusCode) break;
+
+                        if ((int)response.StatusCode == 429 || (int)response.StatusCode == 503)
+                        {
+                            var delay = (int)Math.Pow(2, attempt) * 1000; // 1s, 2s, 4s
+                            Console.WriteLine($"[Personalisation Agent] Rate limited ({response.StatusCode}), waiting {delay}ms before retry...");
+                            await Task.Delay(delay);
+                            continue;
+                        }
+                        else break;
+                    }
+
+                    if (response!.IsSuccessStatusCode) break;
 
                     if ((int)response.StatusCode == 429 || (int)response.StatusCode == 503)
                     {
-                        Console.WriteLine($"[Personalisation Agent] {model} unavailable ({response.StatusCode}), trying next...");
-                        await Task.Delay(1000);
+                        Console.WriteLine($"[Personalisation Agent] {model} still unavailable after retries, trying next model...");
+                        await Task.Delay(2000);
                         continue;
                     }
                     else break;

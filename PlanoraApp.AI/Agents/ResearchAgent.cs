@@ -92,7 +92,7 @@ namespace PlanoraApp.AI.Agents
                             var photoResourceName = photoName.GetString();
                             if (!string.IsNullOrEmpty(photoResourceName))
                             {
-                                var imageUrl = $"https://places.googleapis.com/v1/{photoResourceName}/media?key={_apiKey}&maxHeightPx=400";
+                                var imageUrl = $"https://places.googleapis.com/v1/{photoResourceName}/media?key={_apiKey}&maxWidthPx=800&maxHeightPx=400";
                                 dict["imageUrl"] = imageUrl;
                                 Console.WriteLine($"[ResearchAgent]   Photo URL injected for place");
                             }
