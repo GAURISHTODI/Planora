@@ -6,7 +6,7 @@ namespace PlanoraApp.AI.Agents
 {
     public interface IDayAssemblyAgent
     {
-        Task<string> AssembleDaysAsync(string finalFilteredData, int totalDays, string travelMode = null, string origin = null, string groupType = null);
+        Task<string> AssembleDaysAsync(PlanoraApp.AI.Models.TripGenerationRequest request, int totalDays);
     }
 
     public class DayAssemblyAgent : IDayAssemblyAgent
@@ -19,59 +19,63 @@ namespace PlanoraApp.AI.Agents
             _apiKey = geminiApiKey;
         }
 
-        public async Task<string> AssembleDaysAsync(string finalFilteredData, int totalDays, string travelMode = null, string origin = null, string groupType = null)
+        public async Task<string> AssembleDaysAsync(PlanoraApp.AI.Models.TripGenerationRequest request, int totalDays)
         {
             Console.WriteLine("[DayAssembly Agent] Calling Gemini REST API to write structured JSON itinerary...");
 
+            var dest = string.IsNullOrEmpty(request.Destination) ? "the destination" : request.Destination;
+            var budget = string.IsNullOrEmpty(request.BudgetTier) ? "mid" : request.BudgetTier;
+            var themes = (request.Themes != null && request.Themes.Any()) ? string.Join(", ", request.Themes) : "general sightseeing";
+            var groupType = string.IsNullOrEmpty(request.GroupType) ? "general" : request.GroupType;
+            var paxCount = request.PaxCount;
+
             // Build intelligent prompt based on travel mode
             var travelModeInstruction = "";
-            if (travelMode == "flightIncluded")
+            if (request.TravelMode == "flightIncluded")
             {
+                var origin = string.IsNullOrEmpty(request.Origin) ? "their city" : request.Origin;
                 travelModeInstruction = $@"
 TRAVEL MODE: Flight Included
 - Day 1 is a TRAVEL DAY with arrival. Assume user lands in morning and needs hotel check-in.
 - Day {totalDays} is a DEPARTURE DAY. Schedule light activities near airport/railway station.
 - Adjust first/last day schedules accordingly - no heavy activities on arrival/departure days.
-- If origin is provided: User flies from {origin ?? "their city"} - consider jet lag for long flights.";
+- User flies from {origin} - consider jet lag for long flights.";
             }
-            else if (travelMode == "travelOnly")
+            else if (request.TravelMode == "travelOnly")
             {
-                travelModeInstruction = @"
+                travelModeInstruction = $@"
 TRAVEL MODE: Travel Only
 - All {totalDays} days are for exploration and activities.
 - No travel days to account for - full itinerary each day.
 - User arranges their own transportation separately.";
             }
 
-            var prompt = $@"You are an expert travel planner with deep knowledge of logistics, geography, and traveler psychology. Create an OPTIMAL itinerary for {totalDays} days using the provided places.
+            var prompt = $@"You are an expert travel planner with deep knowledge of logistics, geography, and traveler psychology. Create an OPTIMAL itinerary for {totalDays} days targeting {dest}.
+
+TRIP PROFILE:
+- Destination: {dest}
+- Budget: {budget} tier
+- Traveler Profile: {groupType} (Total {paxCount} travelers)
+- Core Themes/Interests: {themes}
 
 {travelModeInstruction}
 
 INTELLIGENT PLANNING RULES:
-1. GEOGRAPHICAL CLUSTERING: Group activities by proximity to minimize travel time. Never criss-cross the city.
-2. TIMING LOGIC: 
-   - Museums/Indoor: Best in morning (10am-12pm) or afternoon heat (2pm-5pm)
-   - Outdoor/Sightseeing: Early morning (9am-11am) or late afternoon (4pm-6pm)
-   - Shopping: Mid-afternoon (2pm-6pm)
-   - Dining: Lunch 12pm-2pm, Dinner 7pm-9pm
-3. TRAVEL TIME: Include 15-45 mins between locations based on city traffic patterns.
-4. ENERGY MANAGEMENT: Balance high-energy activities with relaxed breaks. Don't overschedule.
-5. AIRPORT PROXIMITY: If flying in/out, keep first/last day activities near arrival/departure points.
-6. CULTURAL INSIGHTS: Consider local siesta times, prayer breaks, weekly closures.
+1. NO DUPLICATES: NEVER repeat a location. Ensure completely unique locations logic.
+2. GEOGRAPHICAL CLUSTERING: Group activities by proximity to minimize travel time. Never criss-cross the city.
+3. BUDGET LOGIC: For {budget} tier, recommend appropriate restaurants and avoid places completely misaligned with this budget. 
+4. TIMING LOGIC: Include 15-45 mins between locations based on city traffic. Detail specific hour-by-hour timeblocks.
 
 REQUIRED TONE AND PERSONALISATION:
-- Tone must be tailored for {groupType ?? "general"} travelers. Write appealing descriptions specifically for them.
+- Tone must be highly tailored for a '{groupType}' traveler profile. Write appealing, immersive descriptions.
 
-BOOKING TYPE CLASSIFICATION (PLANORA ARCHITECTURE):
+BOOKING TYPE CLASSIFICATION:
 - BOOKING_TYPE_A ('A'): Flights, hotels, cabs, generic activities, dining - use aggregators
 - BOOKING_TYPE_B ('B'): Monuments, museums, shows with official ticketing - use direct website
 - BOOKING_TYPE_C ('C'): Free parks, public spaces, gate-only entries - no booking needed
 
-IMAGE HANDLING: 
-- Use imageUrl from context data EXACTLY as provided. Do not modify or invent URLs.
-- If no imageUrl exists, set to null.
-
-CONTEXT DATA: {finalFilteredData}
+IMAGE HANDLING:
+- Output ""imageUrl"": null for ALL activities. This will be automatically populated later by our backend.
 
 Return ONLY valid JSON following this exact schema:
 {{
@@ -82,15 +86,15 @@ Return ONLY valid JSON following this exact schema:
       ""activities"": [
         {{
           ""time"": ""09:00 AM"",
-          ""title"": ""Activity Name"",
+          ""title"": ""Activity/Place Name"",
           ""description"": ""Why this activity at this time + what to expect"",
-          ""location"": ""Place name"",
+          ""location"": ""Use the exact recognizable Google Maps location name (e.g. 'Eiffel Tower, Paris')"",
           ""latitude"": 0.0,
           ""longitude"": 0.0,
-          ""imageUrl"": ""exact_url_from_context_or_null"",
+          ""imageUrl"": null,
           ""booking_type"": ""A|B|C"",
-          ""booking_url"": ""https://official-site.com or null"",
-          ""official_website"": ""https://official-site.com or null"",
+          ""booking_url"": null,
+          ""official_website"": null,
           ""requires_advance_booking"": true/false,
           ""is_free"": false,
           ""entry_fee_approx"": ""$18 or Free"",

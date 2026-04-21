@@ -11,6 +11,7 @@ namespace PlanoraApp.AI.Models
         public List<string> Themes { get; set; } = new();
         public string TravelMode { get; set; } = null; // "flightIncluded" or "travelOnly"
         public string Origin { get; set; } = null; // Origin city if provided
+        public int PaxCount { get; set; } = 1;
     }
     
     public class AgentJobStatus

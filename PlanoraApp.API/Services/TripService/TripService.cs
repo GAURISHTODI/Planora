@@ -75,7 +75,8 @@ namespace PlanoraApp.API.Services.TripService
                         GroupType = trip.GroupType ?? "solo",
                         Themes = trip.Themes ?? new List<string>(),
                         TravelMode = trip.TravelMode,
-                        Origin = trip.Origin?.City
+                        Origin = trip.Origin?.City,
+                        PaxCount = trip.PaxCount
                     };
                     
                     var message = new ServiceBusMessage(JsonSerializer.Serialize(request));

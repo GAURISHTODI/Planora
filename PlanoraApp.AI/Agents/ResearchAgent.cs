@@ -8,6 +8,7 @@ namespace PlanoraApp.AI.Agents
     public interface IResearchAgent
     {
         Task<string> SearchPlacesAsync(string destination, string query);
+        Task<string> HydrateItineraryAsync(string jsonItinerary, string destination);
     }
 
     public class ResearchAgent : IResearchAgent
@@ -110,6 +111,78 @@ namespace PlanoraApp.AI.Agents
             {
                 Console.WriteLine($"[ResearchAgent] Photo URL injection failed (non-critical): {ex.Message}");
                 return rawJson; // Graceful fallback: return original data
+            }
+        }
+
+        public async Task<string> HydrateItineraryAsync(string jsonItinerary, string destination)
+        {
+            Console.WriteLine("[ResearchAgent] Hydrating itinerary with real locations and photos...");
+            try
+            {
+                var doc = System.Text.Json.Nodes.JsonNode.Parse(jsonItinerary);
+                var days = doc?["itinerary"]?.AsArray();
+                if (days == null) return jsonItinerary;
+
+                var tasks = new List<Task>();
+
+                foreach (var day in days)
+                {
+                    var activities = day?["activities"]?.AsArray();
+                    if (activities == null) continue;
+
+                    foreach (var activity in activities)
+                    {
+                        var loc = activity?["location"]?.ToString();
+                        if (string.IsNullOrWhiteSpace(loc)) continue;
+
+                        tasks.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var reqBody = new { textQuery = $"{loc} in {destination}", languageCode = "en" };
+                                var reqMsg = new HttpRequestMessage(HttpMethod.Post, "https://places.googleapis.com/v1/places:searchText");
+                                reqMsg.Headers.Add("X-Goog-Api-Key", _apiKey);
+                                reqMsg.Headers.Add("X-Goog-FieldMask", "places.location,places.photos");
+                                reqMsg.Content = new StringContent(JsonSerializer.Serialize(reqBody), Encoding.UTF8, "application/json");
+
+                                var res = await _httpClient.SendAsync(reqMsg);
+                                if (!res.IsSuccessStatusCode) return;
+
+                                var resJson = await res.Content.ReadAsStringAsync();
+                                using var pDoc = JsonDocument.Parse(resJson);
+                                if (pDoc.RootElement.TryGetProperty("places", out var pArr) && pArr.GetArrayLength() > 0)
+                                {
+                                    var firstPlace = pArr[0];
+                                    
+                                    // Coordinates
+                                    if (firstPlace.TryGetProperty("location", out var locationProps))
+                                    {
+                                        activity["latitude"] = locationProps.GetProperty("latitude").GetDouble();
+                                        activity["longitude"] = locationProps.GetProperty("longitude").GetDouble();
+                                    }
+
+                                    // Image
+                                    if (firstPlace.TryGetProperty("photos", out var photos) && photos.GetArrayLength() > 0)
+                                    {
+                                        var pName = photos[0].GetProperty("name").GetString();
+                                        activity["imageUrl"] = $"https://places.googleapis.com/v1/{pName}/media?key={_apiKey}&maxWidthPx=800&maxHeightPx=400";
+                                    }
+                                }
+                            }
+                            catch { /* Ignore failures for individual places */ }
+                        }));
+                    }
+                }
+
+                await Task.WhenAll(tasks);
+                var hydrated = doc!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+                Console.WriteLine("[ResearchAgent] Hydration complete.");
+                return hydrated;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ResearchAgent] Hydration failed: {ex.Message}");
+                return jsonItinerary;
             }
         }
     }

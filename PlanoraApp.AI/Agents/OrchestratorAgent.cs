@@ -52,7 +52,7 @@ namespace PlanoraApp.AI.Agents
         public async Task<string> ProcessTripRequestAsync(TripGenerationRequest request)
         {
             Console.WriteLine($"\n========================================");
-            Console.WriteLine($"[ORCHESTRATOR] STARTING TRIP GENERATION");
+            Console.WriteLine($"[ORCHESTRATOR] STARTING LLM-FIRST TRIP GENERATION");
             Console.WriteLine($"TripID: {request.TripId} | Dest: {request.Destination}");
             Console.WriteLine($"========================================\n");
             
@@ -63,25 +63,22 @@ namespace PlanoraApp.AI.Agents
             var totalDays = (request.EndDate - request.StartDate).Days + 1;
             if (totalDays <= 0) totalDays = 1;
 
-            await NotifyAsync(request.TripId, "Research", 10, "Researching top attractions and POIs...");
-            var rawData = await _researcher.SearchPlacesAsync(request.Destination, "Top Attractions and Hotels");
+            var destName = string.IsNullOrEmpty(request.Destination) ? "the destination" : request.Destination;
+
+            await NotifyAsync(request.TripId, "AI Brainstorming", 20, $"Designing optimal {totalDays}-day itinerary for {destName}...");
             
-            await NotifyAsync(request.TripId, "Route Optimiser", 30, "Clustering places into daily geographic zones...");
-            var clusteredData = await _router.ClusterPlacesIntoDaysAsync(rawData, totalDays);
+            // 1. Single-Shot LLM Generation
+            var baseItineraryJson = await _assembler.AssembleDaysAsync(request, totalDays);
             
-            await NotifyAsync(request.TripId, "Tour Injector", 50, "Integrating official tour packages...");
-            var injectedData = await _tourInjector.InjectSponsoredToursAsync(clusteredData, request.Destination);
-            
-            await NotifyAsync(request.TripId, "Budget Agent", 60, $"Filtering for {request.BudgetTier} tier options...");
-            var finalData = await _budgeter.PruneByBudgetAsync(injectedData, request.BudgetTier);
-            
-            await NotifyAsync(request.TripId, "Day Assembly", 75, "Scheduling day hour-by-hour with meal gaps...");
-            var baseItineraryJson = await _assembler.AssembleDaysAsync(finalData, totalDays, request.TravelMode, request.Origin, request.GroupType);
+            await NotifyAsync(request.TripId, "Mapping & Images", 75, "Fetching real coordinates and high-res photos...");
+
+            // 2. Hydrate exact chosen places via Google Places
+            var hydratedJson = await _researcher.HydrateItineraryAsync(baseItineraryJson, destName);
 
             await NotifyAsync(request.TripId, "Complete", 100, "Trip Generated Successfully!");
             Console.WriteLine($"\n[ORCHESTRATOR] COMPLETE: Returning generated itinerary back to DB...\n");
 
-            return baseItineraryJson;
+            return hydratedJson;
         }
     }
 }
