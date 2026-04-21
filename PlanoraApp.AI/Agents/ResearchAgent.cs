@@ -1,8 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using System.Text;
-
-
 namespace PlanoraApp.AI.Agents
 {
     public interface IResearchAgent
@@ -10,7 +8,6 @@ namespace PlanoraApp.AI.Agents
         Task<string> SearchPlacesAsync(string destination, string query);
         Task<string> HydrateItineraryAsync(string jsonItinerary, string destination);
     }
-
     public class ResearchAgent : IResearchAgent
     {
         private readonly HttpClient _httpClient;
