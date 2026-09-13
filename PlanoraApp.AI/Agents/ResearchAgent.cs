@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using System.Text;
+using System.Threading;
 namespace PlanoraApp.AI.Agents
 {
     public interface IResearchAgent
@@ -111,9 +112,14 @@ namespace PlanoraApp.AI.Agents
             }
         }
 
+        // Limit concurrent Google Places API calls to avoid rate limiting
+        private static readonly SemaphoreSlim _placesSemaphore = new(5, 5);
+        private static readonly HttpClient _hydrateClient = new() { Timeout = TimeSpan.FromSeconds(8) };
+
         public async Task<string> HydrateItineraryAsync(string jsonItinerary, string destination)
         {
             Console.WriteLine("[ResearchAgent] Hydrating itinerary with real locations and photos...");
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 var doc = System.Text.Json.Nodes.JsonNode.Parse(jsonItinerary);
@@ -132,54 +138,61 @@ namespace PlanoraApp.AI.Agents
                         var loc = activity?["location"]?.ToString();
                         if (string.IsNullOrWhiteSpace(loc)) continue;
 
-                        tasks.Add(Task.Run(async () =>
-                        {
-                            try
-                            {
-                                var reqBody = new { textQuery = $"{loc} in {destination}", languageCode = "en" };
-                                var reqMsg = new HttpRequestMessage(HttpMethod.Post, "https://places.googleapis.com/v1/places:searchText");
-                                reqMsg.Headers.Add("X-Goog-Api-Key", _apiKey);
-                                reqMsg.Headers.Add("X-Goog-FieldMask", "places.location,places.photos");
-                                reqMsg.Content = new StringContent(JsonSerializer.Serialize(reqBody), Encoding.UTF8, "application/json");
-
-                                var res = await _httpClient.SendAsync(reqMsg);
-                                if (!res.IsSuccessStatusCode) return;
-
-                                var resJson = await res.Content.ReadAsStringAsync();
-                                using var pDoc = JsonDocument.Parse(resJson);
-                                if (pDoc.RootElement.TryGetProperty("places", out var pArr) && pArr.GetArrayLength() > 0)
-                                {
-                                    var firstPlace = pArr[0];
-                                    
-                                    // Coordinates
-                                    if (firstPlace.TryGetProperty("location", out var locationProps))
-                                    {
-                                        activity["latitude"] = locationProps.GetProperty("latitude").GetDouble();
-                                        activity["longitude"] = locationProps.GetProperty("longitude").GetDouble();
-                                    }
-
-                                    // Image
-                                    if (firstPlace.TryGetProperty("photos", out var photos) && photos.GetArrayLength() > 0)
-                                    {
-                                        var pName = photos[0].GetProperty("name").GetString();
-                                        activity["imageUrl"] = $"https://places.googleapis.com/v1/{pName}/media?key={_apiKey}&maxWidthPx=800&maxHeightPx=400";
-                                    }
-                                }
-                            }
-                            catch { /* Ignore failures for individual places */ }
-                        }));
+                        tasks.Add(HydrateSingleActivityAsync(activity!, loc, destination));
                     }
                 }
 
                 await Task.WhenAll(tasks);
                 var hydrated = doc!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-                Console.WriteLine("[ResearchAgent] Hydration complete.");
+                sw.Stop();
+                Console.WriteLine($"[ResearchAgent] Hydration complete in {sw.ElapsedMilliseconds}ms ({tasks.Count} places).");
                 return hydrated;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[ResearchAgent] Hydration failed: {ex.Message}");
                 return jsonItinerary;
+            }
+        }
+
+        private async Task HydrateSingleActivityAsync(System.Text.Json.Nodes.JsonNode activity, string loc, string destination)
+        {
+            await _placesSemaphore.WaitAsync();
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var reqBody = new { textQuery = $"{loc} in {destination}", languageCode = "en" };
+                var reqMsg = new HttpRequestMessage(HttpMethod.Post, "https://places.googleapis.com/v1/places:searchText");
+                reqMsg.Headers.Add("X-Goog-Api-Key", _apiKey);
+                reqMsg.Headers.Add("X-Goog-FieldMask", "places.location,places.photos");
+                reqMsg.Content = new StringContent(JsonSerializer.Serialize(reqBody), Encoding.UTF8, "application/json");
+
+                var res = await _hydrateClient.SendAsync(reqMsg, cts.Token);
+                if (!res.IsSuccessStatusCode) return;
+
+                var resJson = await res.Content.ReadAsStringAsync(cts.Token);
+                using var pDoc = JsonDocument.Parse(resJson);
+                if (pDoc.RootElement.TryGetProperty("places", out var pArr) && pArr.GetArrayLength() > 0)
+                {
+                    var firstPlace = pArr[0];
+                    
+                    if (firstPlace.TryGetProperty("location", out var locationProps))
+                    {
+                        activity["latitude"] = locationProps.GetProperty("latitude").GetDouble();
+                        activity["longitude"] = locationProps.GetProperty("longitude").GetDouble();
+                    }
+
+                    if (firstPlace.TryGetProperty("photos", out var photos) && photos.GetArrayLength() > 0)
+                    {
+                        var pName = photos[0].GetProperty("name").GetString();
+                        activity["imageUrl"] = $"https://places.googleapis.com/v1/{pName}/media?key={_apiKey}&maxWidthPx=800&maxHeightPx=400";
+                    }
+                }
+            }
+            catch { /* Ignore failures for individual places */ }
+            finally
+            {
+                _placesSemaphore.Release();
             }
         }
     }

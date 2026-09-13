@@ -56,9 +56,8 @@ namespace PlanoraApp.AI.Agents
             Console.WriteLine($"TripID: {request.TripId} | Dest: {request.Destination}");
             Console.WriteLine($"========================================\n");
             
-            // Critical Delay: Wait 4 seconds to ensure the React Native client has had time  
-            // to connect to the SignalR Hub. Otherwise, rapid generation misses the client!
-            await Task.Delay(4000);
+            // Brief delay to let the React Native client connect to SignalR Hub
+            await Task.Delay(1000);
 
             var totalDays = (request.EndDate - request.StartDate).Days + 1;
             if (totalDays <= 0) totalDays = 1;
